@@ -1,6 +1,7 @@
 #include <hardware/flash.h> //for flash_get_unique_id
 #include "mcp2515.h"
 
+// Variables for communication
 uint8_t this_pico_flash_id[8], node_address;
 struct can_frame canMsgTx, canMsgRx;
 unsigned long counterTx {0}, counterRx {0};
@@ -11,7 +12,7 @@ const byte interruptPin {20};
 volatile byte data_available {false};
 MCP2515 can0 {spi0, 17, 19, 16, 18, 10000000};
 
-//the interrupt service routine
+// The interrupt service routine
 void read_interrupt(uint gpio, uint32_t events) {
   can0.readMessage(&canMsgRx);
   data_available = true;
@@ -27,8 +28,27 @@ void setup() {
   gpio_set_irq_enabled_with_callback(
   interruptPin, GPIO_IRQ_EDGE_FALL,
   true, &read_interrupt );
+  time_to_write = millis() + write_delay;
 }
+
 void loop() {
+  if (Serial.available()) {
+    String input = Serial.readStringUntil('\n');
+    int r = input.toInt();
+    canMsgTx.can_id = node_address;
+    canMsgTx.can_dlc = 8;
+    unsigned long div = r*10;
+    for( int i = 0; i < 8; i++ )
+      canMsgTx.data[7-i]='0'+((div/=10)%10);
+      noInterrupts();
+      err = can0.sendMessage(&canMsgTx);
+      interrupts();
+      Serial.print("Sending message ");
+      Serial.print( counterTx );
+      Serial.print(" from node ");
+      Serial.println( node_address, HEX );
+      counterTx++;
+    }
     if( data_available ) {
       noInterrupts();
       can_frame frm {canMsgRx}; //local copy
