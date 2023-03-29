@@ -83,38 +83,40 @@ public:
             int ptr = head;
             for (int i = 0; i < buffer_size - 1; i++)
             {
-                Serial.print(buffer[ptr].measured_illuminance);
+                Serial.print(buffer[ptr].duty_cycle);
                 Serial.print(", ");
                 ptr++;
                 if (ptr == buffer_size)
                     ptr = 0;
             }
-            Serial.print(buffer[ptr].measured_illuminance);
+            Serial.print(buffer[ptr].duty_cycle);
         }
     }
-    float get_average_energy_consumption(float delta_t, float p_max)
+    float get_accumulated_energy_consumption(float delta_t, float p_max)
     {
-        float energy_consumption_sum;
+        float accumulated_energy_consumption;
         for (int i = 0; i < buffer_size; i++)
         {
-            energy_consumption_sum += p_max * buffer[i].duty_cycle * delta_t;
+            accumulated_energy_consumption += p_max * buffer[i].duty_cycle * delta_t;
         }
-        return energy_consumption_sum / (float)buffer_size;
+        return accumulated_energy_consumption;
     }
 
-    float get_average_visibility_error()
+    float get_accumulated_visibility_error()
     {
-        float visibility_error_sum;
+        float accumulated_visibility_error;
         for (int i = 0; i < buffer_size; i++)
         {
-            visibility_error_sum += max(0, buffer[i].reference_illuminance - buffer[i].measured_illuminance);
+            accumulated_visibility_error += max(
+                0,
+                buffer[i].reference_illuminance - buffer[i].measured_illuminance);
         }
-        return visibility_error_sum / (float)buffer_size;
+        return accumulated_visibility_error;
     }
 
-    float get_average_flicker_error()
+    float get_accumulated_flicker_error()
     {
-        float flicker_error_sum;
+        float accumulated_flicker_error;
 
         if (!is_full())
         {
@@ -123,8 +125,8 @@ public:
                 float condition = (buffer[i].duty_cycle - buffer[i - 1].duty_cycle) * (buffer[i - 1].duty_cycle - buffer[i - 2].duty_cycle);
                 if (condition < 0)
                 {
-                    flicker_error_sum += (abs(buffer[i].duty_cycle - buffer[i - 1].duty_cycle) +
-                                          abs(buffer[i - 1].duty_cycle - buffer[i - 2].duty_cycle));
+                    accumulated_flicker_error += (abs(buffer[i].duty_cycle - buffer[i - 1].duty_cycle) +
+                                                  abs(buffer[i - 1].duty_cycle - buffer[i - 2].duty_cycle));
                 }
             }
         }
@@ -155,9 +157,8 @@ public:
                 float condition = (buffer[i].duty_cycle - buffer[i - 1].duty_cycle) * (buffer[i - 1].duty_cycle - buffer[i - 2].duty_cycle);
                 if (condition < 0)
                 {
-                    flicker_error_sum += (abs(buffer[i].duty_cycle - buffer[i - 1].duty_cycle) +
-                                          abs(buffer[i - 1].duty_cycle - buffer[i - 2].duty_cycle)) /
-                                         (float)buffer_size;
+                    accumulated_flicker_error += (abs(buffer[i].duty_cycle - buffer[i - 1].duty_cycle) +
+                                                  abs(buffer[i - 1].duty_cycle - buffer[i - 2].duty_cycle));
                 }
                 ptr1 = ptr2;
                 ptr2 = ptr3;
@@ -167,7 +168,7 @@ public:
             }
         }
 
-        return flicker_error_sum / (float)buffer_size;
+        return accumulated_flicker_error;
     }
 };
 #endif // CIRCULAR_BUFFER_H

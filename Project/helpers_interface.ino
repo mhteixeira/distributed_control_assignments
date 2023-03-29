@@ -12,7 +12,7 @@ void process_user_request()
             switch (request.charAt(2))
             {
             case '0':
-                if (!my_pid.get_anti_windup_status())
+                if (my_pid.get_anti_windup_status())
                 {
                     my_pid.set_anti_windup_status(false);
                     Serial.println("ack");
@@ -23,9 +23,39 @@ void process_user_request()
                 }
                 break;
             case '1':
-                if (my_pid.get_anti_windup_status())
+                if (!my_pid.get_anti_windup_status())
                 {
                     my_pid.set_anti_windup_status(true);
+                    Serial.println("ack");
+                }
+                else
+                {
+                    Serial.println("err: Already active");
+                }
+                break;
+            default:
+                is_command_valid = false;
+                break;
+            }
+            break;
+        case 'f':
+            switch (request.charAt(2))
+            {
+            case '0':
+                if (my_pid.get_feedforward_status())
+                {
+                    my_pid.set_feedforward_status(false);
+                    Serial.println("ack");
+                }
+                else
+                {
+                    Serial.println("err: Already inactive");
+                }
+                break;
+            case '1':
+                if (!my_pid.get_feedforward_status())
+                {
+                    my_pid.set_feedforward_status(true);
                     Serial.println("ack");
                 }
                 else
@@ -67,15 +97,15 @@ void process_user_request()
                 break;
             case 'e':
                 Serial.print("e ");
-                Serial.println(buffer.get_average_energy_consumption(delta_t, p_max), 10);
+                Serial.println(buffer.get_accumulated_energy_consumption(delta_t, p_max), 10);
                 break;
             case 'v':
                 Serial.print("v ");
-                Serial.println(buffer.get_average_visibility_error(), 10);
+                Serial.println(buffer.get_accumulated_visibility_error(), 10);
                 break;
             case 'f':
                 Serial.print("f ");
-                Serial.println(buffer.get_average_flicker_error(), 10);
+                Serial.println(buffer.get_accumulated_flicker_error(), 10);
                 break;
             case 'p':
                 Serial.print("p ");
@@ -170,7 +200,7 @@ void process_user_request()
             case '1':
                 if (occupancy == 0)
                 {
-                    r = 12;
+                    r = 7;
                     occupancy = true;
                     Serial.println("ack");
                 }
@@ -209,6 +239,17 @@ void process_user_request()
                     Serial.println("err: Already streaming");
                 }
                 break;
+            case 'a':
+                if (is_streaming_all == false)
+                {
+                    is_streaming_all = true;
+                    Serial.println("ack");
+                }
+                else
+                {
+                    Serial.println("err: Not streaming");
+                }
+                break;
             default:
                 is_command_valid = false;
                 break;
@@ -232,6 +273,17 @@ void process_user_request()
                 if (is_streaming_dtc == true)
                 {
                     is_streaming_dtc = false;
+                    Serial.println("ack");
+                }
+                else
+                {
+                    Serial.println("err: Not streaming");
+                }
+                break;
+            case 'a':
+                if (is_streaming_all == true)
+                {
+                    is_streaming_all = false;
                     Serial.println("ack");
                 }
                 else
