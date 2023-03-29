@@ -36,14 +36,20 @@ uint8_t node_address;
 unsigned long counterTx{0}, counterRx{0};
 const uint8_t interruptPin{20};
 volatile bool got_irq{false};
+int number_of_detected_nodes = 0;
+int net_addresses[3] = {0, 0, 0};
+int node_id;
 
 // Variables for the state machine
 enum States
 {
+    START,
+    CALIBRATION,
     MANUAL,
     AUTO
 };
-States current_state = AUTO;
+
+States current_state = START;
 bool enter_auto_state = false;
 bool enter_manual_state = false;
 
@@ -59,6 +65,7 @@ void read_interrupt(uint gpio, uint32_t events)
 {
     got_irq = true;
 }
+
 // Timer responsible for the sampling time of the ADC
 volatile unsigned long int timer_time{0};
 volatile bool timer_fired{false};
@@ -96,10 +103,11 @@ void setup()
     flash_get_unique_id(pico_flash_id);
     rp2040.resumeOtherCore();
     node_address = pico_flash_id[7];
+    net_addresses[0] = node_address;
 
     Serial.begin();
     analogReadResolution(12);
-    add_repeating_timer_ms(-10, my_repeating_timer_callback,
+    add_repeating_timer_ms(-1000, my_repeating_timer_callback,
                            NULL, &timer);
 }
 
@@ -107,75 +115,105 @@ void loop()
 {
     can_frame frm;
     uint32_t msg;
-    uint8_t b[4];
+    uint8_t b_write_message[4];
+    uint8_t b_read_message[4];
     process_user_request();
     run_state_machine();
-    sensor_value = analogRead(A0);
-    lux = sensor_value_to_lux(sensor_value);
+
     if (timer_fired)
     {
-
-        buffered_data tmp = buffered_data{
-            (float)millis(), (float)pwm / 255.0f,
-            r, lux};
-        buffer.put(tmp);
-
-        if (current_state == AUTO)
+        if (current_state == START)
         {
-            float y = lux;
-            float u = my_pid.compute_control(r, y);
-            pwm = (int)u;
-            my_pid.housekeep(r, y);
+
+            b_write_message[3] = ICC_WRITE_DATA;
+            b_write_message[2] = node_address;
+            b_write_message[0] = counterTx;
+            b_write_message[1] = 0;
+            rp2040.fifo.push(bytes_to_msg(b_write_message));
+            Serial.print("Sending");
+            print_message(counterTx, b_write_message[2], b_write_message[2], 0);
+            counterTx++;
+
+            // Ver se recebeu e incrementar o number_of_detected_nodes
+            // E guardar no node_addresses o último
+            if ((net_addresses[1] != b_read_message[2]))
+            {
+                net_addresses[number_of_detected_nodes + 1] = b_read_message[2];
+                number_of_detected_nodes++;
+            }
+        }
+        if (current_state == CALIBRATION)
+        {
+            Serial.print("oi");
+        }
+        if (current_state == MANUAL || current_state == AUTO)
+        {
+            sensor_value = analogRead(A0);
+            lux = sensor_value_to_lux(sensor_value);
+
+            buffered_data tmp = buffered_data{
+                (float)millis(), (float)pwm / 255.0f,
+                r, lux};
+            buffer.put(tmp);
+
+            if (current_state == AUTO)
+            {
+                float y = lux;
+                float u = my_pid.compute_control(r, y);
+                pwm = (int)u;
+                my_pid.housekeep(r, y);
+
+                analogWrite(LED_PIN, pwm);
+            }
+
+            if (is_streaming_lux)
+            {
+                Serial.print("s l ");
+                Serial.print(lux);
+                Serial.print(" ");
+                Serial.print((int)millis());
+                Serial.println("");
+            }
+            if (is_streaming_dtc)
+            {
+                Serial.print("s d ");
+                Serial.print((float)pwm / 255.0f);
+                Serial.print(" ");
+                Serial.print((int)millis());
+                Serial.println("");
+            }
+            if (is_streaming_all)
+            {
+                Serial.print((int)millis());
+                Serial.print(", ");
+                Serial.print((float)pwm / 255.0f);
+                Serial.print(", ");
+                Serial.print(r);
+                Serial.print(", ");
+                Serial.print(lux);
+
+                Serial.println("");
+            }
 
             analogWrite(LED_PIN, pwm);
-            timer_fired = false;
         }
-
-        if (is_streaming_lux)
-        {
-            Serial.print("s l ");
-            Serial.print(lux);
-            Serial.print(" ");
-            Serial.print((int)millis());
-            Serial.println("");
-        }
-        if (is_streaming_dtc)
-        {
-            Serial.print("s d ");
-            Serial.print((float)pwm / 255.0f);
-            Serial.print(" ");
-            Serial.print((int)millis());
-            Serial.println("");
-        }
-        if (is_streaming_all)
-        {
-            Serial.print((int)millis());
-            Serial.print(", ");
-            Serial.print((float)pwm / 255.0f);
-            Serial.print(", ");
-            Serial.print(r);
-            Serial.print(", ");
-            Serial.print(lux);
-
-            Serial.println("");
-        }
+        timer_fired = false;
     }
 
-    analogWrite(LED_PIN, pwm);
-
+    // Interrupção para o FIFO
     if (rp2040.fifo.pop_nb(&msg))
     {
-        msg_to_bytes(msg, b);
-        if (b[3] == ICC_READ_DATA)
+        msg_to_bytes(msg, b_read_message);
+        if (b_read_message[3] == ICC_READ_DATA)
         {
             uint16_t val = msg;
             Serial.print("Received");
-            print_message(counterRx, node_address, b[2], val);
+            print_message(counterRx, node_address, b_read_message[2], val);
             counterRx++;
         }
-        else if (b[3] == ICC_ERROR_DATA)
+        else if (b_read_message[3] == ICC_ERROR_DATA)
         {
-            print_can_errors(b[1], b[0]);
+            print_can_errors(b_read_message[1], b_read_message[0]);
             can0.clearRXnOVRFlags();
             can0.clearInterrupts();
         }

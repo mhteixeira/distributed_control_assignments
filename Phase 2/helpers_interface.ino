@@ -310,6 +310,12 @@ void run_state_machine()
 {
     switch (current_state)
     {
+    case START:
+        if (number_of_detected_nodes >= 2)
+        {
+            current_state = CALIBRATION;
+        }
+        break;
     case AUTO:
         if (enter_manual_state)
         {
