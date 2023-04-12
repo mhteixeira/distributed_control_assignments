@@ -37,13 +37,16 @@ unsigned long counterTx{0}, counterRx{0};
 const uint8_t interruptPin{20};
 volatile bool got_irq{false};
 int number_of_detected_nodes = 0;
+int redundancy_writings = 0;
 int net_addresses[3] = {0, 0, 0};
-int node_id;
+int node_id = -1;
+uint8_t b_read_message[4];
 
 // Variables for the state machine
 enum States
 {
     START,
+    WAITING_OTHERS_NODES,
     CALIBRATION,
     MANUAL,
     AUTO
@@ -111,12 +114,14 @@ void setup()
                            NULL, &timer);
 }
 
+// Protocolo de comunicação entre placas
+// Val = 0 => WakeUp
+
 void loop()
 {
     can_frame frm;
     uint32_t msg;
     uint8_t b_write_message[4];
-    uint8_t b_read_message[4];
     process_user_request();
     run_state_machine();
 
@@ -124,27 +129,62 @@ void loop()
     {
         if (current_state == START)
         {
-
             b_write_message[3] = ICC_WRITE_DATA;
             b_write_message[2] = node_address;
             b_write_message[0] = counterTx;
             b_write_message[1] = 0;
             rp2040.fifo.push(bytes_to_msg(b_write_message));
-            Serial.print("Sending");
+            Serial.print("s Sending");
             print_message(counterTx, b_write_message[2], b_write_message[2], 0);
             counterTx++;
 
-            // Ver se recebeu e incrementar o number_of_detected_nodes
-            // E guardar no node_addresses o último
             if ((net_addresses[1] != b_read_message[2]))
             {
                 net_addresses[number_of_detected_nodes + 1] = b_read_message[2];
                 number_of_detected_nodes++;
             }
+            Serial.print(node_id);
+            Serial.print(" ");
+            Serial.print(net_addresses[0]);
+            Serial.print(" ");
+            Serial.print(net_addresses[1]);
+            Serial.print(" ");
+            Serial.print(net_addresses[2]);
+            Serial.print(" ");
+            Serial.println();
+        }
+        if (current_state == WAITING_OTHERS_NODES)
+        {
+            b_write_message[3] = ICC_WRITE_DATA;
+            b_write_message[2] = node_address;
+            b_write_message[0] = counterTx;
+            b_write_message[1] = 0;
+            rp2040.fifo.push(bytes_to_msg(b_write_message));
+            Serial.print("w Sending");
+            print_message(counterTx, b_write_message[2], b_write_message[2], 0);
+            counterTx++;
+            redundancy_writings++;
+            Serial.print(node_id);
+            Serial.print(" ");
+            Serial.print(net_addresses[0]);
+            Serial.print(" ");
+            Serial.print(net_addresses[1]);
+            Serial.print(" ");
+            Serial.print(net_addresses[2]);
+            Serial.print(" ");
+            Serial.println();
         }
         if (current_state == CALIBRATION)
         {
-            Serial.print("oi");
+            Serial.print(node_id);
+            Serial.print(" ");
+            Serial.print(net_addresses[0]);
+            Serial.print(" ");
+            Serial.print(net_addresses[1]);
+            Serial.print(" ");
+            Serial.print(net_addresses[2]);
+            Serial.print(" ");
+            Serial.println();
         }
         if (current_state == MANUAL || current_state == AUTO)
         {
@@ -207,8 +247,10 @@ void loop()
         if (b_read_message[3] == ICC_READ_DATA)
         {
             uint16_t val = msg;
+
             Serial.print("Received");
             print_message(counterRx, node_address, b_read_message[2], val);
+
             counterRx++;
         }
         else if (b_read_message[3] == ICC_ERROR_DATA)

@@ -313,6 +313,13 @@ void run_state_machine()
     case START:
         if (number_of_detected_nodes >= 2)
         {
+            current_state = WAITING_OTHERS_NODES;
+            node_id = (net_addresses[0] < node_address) + (net_addresses[1] < node_address) + (net_addresses[2] < node_address);
+        }
+        break;
+    case WAITING_OTHERS_NODES:
+        if (redundancy_writings >= 100)
+        {
             current_state = CALIBRATION;
         }
         break;
