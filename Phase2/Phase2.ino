@@ -37,19 +37,25 @@ unsigned long counterTx{0}, counterRx{0};
 const uint8_t interruptPin{20};
 volatile bool got_irq{false};
 int number_of_detected_nodes = 0;
-int redundancy_writings = 0;
 int net_addresses[3] = {0, 0, 0};
 int node_id = -1;
 uint8_t b_read_message[4];
-
+int current_time; 
+bool send_message = false;
 // Variables for the state machine
 enum States
 {
     START,
     WAITING_OTHERS_NODES,
+    SEND_MESSAGE,
     CALIBRATION,
     MANUAL,
     AUTO
+};
+
+enum TypeMessage {
+    WAKE_UP,
+    CHECKING,
 };
 
 States current_state = START;
@@ -105,7 +111,7 @@ void setup()
     rp2040.idleOtherCore();
     flash_get_unique_id(pico_flash_id);
     rp2040.resumeOtherCore();
-    node_address = pico_flash_id[7];
+    node_address = pico_flash_id[6];
     net_addresses[0] = node_address;
 
     Serial.begin();
@@ -131,8 +137,9 @@ void loop()
         {
             b_write_message[3] = ICC_WRITE_DATA;
             b_write_message[2] = node_address;
-            b_write_message[0] = counterTx;
-            b_write_message[1] = 0;
+            b_write_message[0] = WAKE_UP;
+            b_write_message[1] = number_of_detected_nodes;
+            delay(node_address*30);
             rp2040.fifo.push(bytes_to_msg(b_write_message));
             Serial.print("s Sending");
             print_message(counterTx, b_write_message[2], b_write_message[2], 0);
@@ -155,15 +162,6 @@ void loop()
         }
         if (current_state == WAITING_OTHERS_NODES)
         {
-            b_write_message[3] = ICC_WRITE_DATA;
-            b_write_message[2] = node_address;
-            b_write_message[0] = counterTx;
-            b_write_message[1] = 0;
-            rp2040.fifo.push(bytes_to_msg(b_write_message));
-            Serial.print("w Sending");
-            print_message(counterTx, b_write_message[2], b_write_message[2], 0);
-            counterTx++;
-            redundancy_writings++;
             Serial.print(node_id);
             Serial.print(" ");
             Serial.print(net_addresses[0]);
@@ -174,6 +172,17 @@ void loop()
             Serial.print(" ");
             Serial.println();
         }
+        if(current_state == SEND_MESSAGE){
+            b_write_message[3] = ICC_WRITE_DATA;
+            b_write_message[2] = node_address;
+            b_write_message[0] = CHECKING;
+            b_write_message[1] = 0;
+            delay(node_address);
+            rp2040.fifo.push(bytes_to_msg(b_write_message));
+            Serial.print("w Sending");
+            print_message(counterTx, b_write_message[2], b_write_message[2], 0);
+        }
+        
         if (current_state == CALIBRATION)
         {
             Serial.print(node_id);
@@ -258,6 +267,9 @@ void loop()
             print_can_errors(b_read_message[1], b_read_message[0]);
             can0.clearRXnOVRFlags();
             can0.clearInterrupts();
+        }
+        if(b_read_message[0] == WAKE_UP && current_state == WAITING_OTHERS_NODES) {
+            send_message = true;
         }
     }
 }
