@@ -319,34 +319,16 @@ void run_state_machine()
         }
         break;
     case WAITING_OTHERS_NODES:
-        if(millis() - current_time > 12000){
+        if (millis() - current_time > 1000)
+        {
             current_state = CALIBRATION;
         }
         break;
     case CALIBRATION:
-      if(node_id == hub_id){
-        current_state = SEND_MESSAGE;
-      }
-      break;
-    case SEND_MESSAGE:
-        acknowledges = 2;
-        if(was_message_send == true) current_state = WAIT_FOR_ACK;
-        current_time = millis();
-        break;
-    case WAIT_FOR_ACK:
-         was_message_send = false;
-        if(millis() - current_time > 1000) current_state = SEND_MESSAGE;
-        if(acknowledges == 0){       
-            step_to_calibrate +=1;
-            current_state = ACTION;
-            if(step_to_calibrate == 8){
-                current_state = AUTO;
-            }
+        if (is_calibrated)
+        {
+            current_state = AUTO;
         }
-        break;
-    case ACTION:
-        Serial.print("entrou aqui");  
-        if(was_message_send == true) current_state = SEND_MESSAGE;
         break;
     case AUTO:
         if (enter_manual_state)
