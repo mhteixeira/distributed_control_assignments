@@ -314,15 +314,31 @@ void run_state_machine()
         if (number_of_detected_nodes >= 2)
         {
             current_state = WAITING_OTHERS_NODES;
+            current_time = millis();
             node_id = (net_addresses[0] < node_address) + (net_addresses[1] < node_address) + (net_addresses[2] < node_address);
         }
         break;
     case WAITING_OTHERS_NODES:
-        if (redundancy_writings >= 100)
-        {
+        if(millis() - current_time > 3000){
             current_state = CALIBRATION;
         }
+        else if(send_message == true){
+            current_state = SEND_MESSAGE;
+            current_time = millis();
+        }
         break;
+    case SEND_MESSAGE:
+        if(millis() - current_time > 1000){
+            current_time= millis();
+            send_message = false;
+            current_state = WAITING_OTHERS_NODES;
+        }
+        break;
+    case CALIBRATION:
+      if(is_calibration_completed == true){
+        current_state = AUTO;
+      }
+      break;
     case AUTO:
         if (enter_manual_state)
         {

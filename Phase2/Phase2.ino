@@ -42,6 +42,10 @@ int node_id = -1;
 uint8_t b_read_message[4];
 int current_time; 
 bool send_message = false;
+float outside_illuminance;
+int current_id = -1;
+float k_ij[3] = {0, 0, 0};
+
 // Variables for the state machine
 enum States
 {
@@ -56,6 +60,8 @@ enum States
 enum TypeMessage {
     WAKE_UP,
     CHECKING,
+    LED_ON,
+    PASS,
 };
 
 States current_state = START;
@@ -123,11 +129,22 @@ void setup()
 // Protocolo de comunicação entre placas
 // Val = 0 => WakeUp
 
+void send_message_to_bus(TypeMessage type_of_message, int value=0){
+   uint8_t b_write_message[4];
+
+  b_write_message[3] = ICC_WRITE_DATA;
+  b_write_message[2] = node_address;
+  b_write_message[0] = type_of_message;
+  b_write_message[1] = value;
+  
+  delay(node_address*50);
+  rp2040.fifo.push(bytes_to_msg(b_write_message));
+}
+
 void loop()
 {
     can_frame frm;
     uint32_t msg;
-    uint8_t b_write_message[4];
     process_user_request();
     run_state_machine();
 
@@ -135,14 +152,9 @@ void loop()
     {
         if (current_state == START)
         {
-            b_write_message[3] = ICC_WRITE_DATA;
-            b_write_message[2] = node_address;
-            b_write_message[0] = WAKE_UP;
-            b_write_message[1] = number_of_detected_nodes;
-            delay(node_address*30);
-            rp2040.fifo.push(bytes_to_msg(b_write_message));
+            send_message_to_bus(WAKE_UP, number_of_detected_nodes);
             Serial.print("s Sending");
-            print_message(counterTx, b_write_message[2], b_write_message[2], 0);
+            print_message(counterTx, node_address, node_address, number_of_detected_nodes);
             counterTx++;
 
             if ((net_addresses[1] != b_read_message[2]))
@@ -173,27 +185,59 @@ void loop()
             Serial.println();
         }
         if(current_state == SEND_MESSAGE){
-            b_write_message[3] = ICC_WRITE_DATA;
-            b_write_message[2] = node_address;
-            b_write_message[0] = CHECKING;
-            b_write_message[1] = 0;
-            delay(node_address);
-            rp2040.fifo.push(bytes_to_msg(b_write_message));
+            send_message_to_bus(CHECKING, 0);
             Serial.print("w Sending");
-            print_message(counterTx, b_write_message[2], b_write_message[2], 0);
+            print_message(counterTx, node_address, node_address, 0);
         }
         
         if (current_state == CALIBRATION)
         {
-            Serial.print(node_id);
-            Serial.print(" ");
-            Serial.print(net_addresses[0]);
-            Serial.print(" ");
-            Serial.print(net_addresses[1]);
-            Serial.print(" ");
-            Serial.print(net_addresses[2]);
-            Serial.print(" ");
-            Serial.println();
+          if (current_id == -1)
+          {
+            Serial.println("turn off light");
+            analogWrite(LED_PIN, 0);
+            delay(1000);
+            Serial.println("measure the outside");
+            outside_illuminance = analogRead(A0);
+            delay(200);
+            current_id += 1;
+            if(current_id == 0){
+                delay(3000);
+            }
+          }
+          else if(node_id == current_id){
+            Serial.println("turn on light");
+            analogWrite(LED_PIN, 4095);
+            send_message_to_bus(LED_ON, 1);
+            delay(200);
+            // measure the outside
+            Serial.print("measure the outside: ");
+            int measurement = analogRead(A0);
+            Serial.println(measurement);
+            k_ij[current_id] = (measurement - outside_illuminance)/(4095);
+            Serial.print("kij: ");
+            Serial.println(k_ij[current_id]);
+            // pass to other node and turn off light
+            delay(1000);
+            Serial.println("time to another node");
+            send_message_to_bus(PASS);
+            analogWrite(LED_PIN, 0);
+            current_id += 1;
+          }
+          else{
+            if(b_read_message[0] == LED_ON){
+              // measure the outside
+              Serial.print("measure the outside (LED_ON): ");
+              int measurement = analogRead(A0);
+              Serial.println(measurement);
+              k_ij[current_id] = (measurement - outside_illuminance)/(4095);
+              Serial.print("kij : ");
+              Serial.println(k_ij[current_id]);
+            } else if(b_read_message[0] == PASS){
+               Serial.println("changing current_id");
+              current_id += 1;
+            }
+          }
         }
         if (current_state == MANUAL || current_state == AUTO)
         {
