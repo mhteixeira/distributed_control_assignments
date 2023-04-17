@@ -58,6 +58,7 @@ enum States
 };
 
 enum TypeMessage {
+    MESSAGE_READ,
     WAKE_UP,
     CHECKING,
     LED_ON,
@@ -206,6 +207,8 @@ void loop()
             }
           }
           else if(node_id == current_id){
+            // turn on led
+            delay(2000);
             Serial.println("turn on light");
             analogWrite(LED_PIN, 4095);
             send_message_to_bus(LED_ON, 1);
@@ -235,7 +238,8 @@ void loop()
               Serial.println(k_ij[current_id]);
             } else if(b_read_message[0] == PASS){
                Serial.println("changing current_id");
-              current_id += 1;
+               current_id += 1;
+               b_read_message[0] = MESSAGE_READ;
             }
           }
         }

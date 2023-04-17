@@ -335,7 +335,7 @@ void run_state_machine()
         }
         break;
     case CALIBRATION:
-      if(is_calibration_completed == true){
+      if(false){
         current_state = AUTO;
       }
       break;
