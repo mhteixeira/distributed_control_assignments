@@ -41,7 +41,7 @@ int net_addresses[3] = {0, 0, 0};
 int node_id = -1;
 uint8_t b_read_message[4];
 int current_time;
-float outside_illuminance;
+float external_illuminance;
 float k_ij[3] = {0, 0, 0};
 int waiting_ack_timer;
 int number_of_acks_received = 0;
@@ -67,7 +67,9 @@ enum TypeMessage
     NOTHING,
     WAKE_UP,
     CALCULATE_EXTERNAL_LUMINANCE,
-    MEASUREMENT,
+    CALCULATE_DISTURBANCE_COEFF,
+    TURN_ON_LED,
+    TURN_OFF_LED,
     ACKNOWLEDGE,
     CALIBRATION_COMPLETED
 };
@@ -141,14 +143,14 @@ void setup()
                            NULL, &timer);
 }
 
-void send_message_to_bus(TypeMessage type_of_message, int to_node_address = 0)
+void send_message_to_bus(TypeMessage type_of_message, int optional_param = 0)
 {
     uint8_t b_write_message[4];
 
     b_write_message[3] = ICC_WRITE_DATA;
     b_write_message[2] = node_address;
     b_write_message[0] = type_of_message;
-    b_write_message[1] = to_node_address;
+    b_write_message[1] = optional_param;
 
     delay(node_address);
     rp2040.fifo.push(bytes_to_msg(b_write_message));
@@ -160,19 +162,61 @@ void process_message_from_bus(uint8_t *b_message)
     switch (b_message[0])
     {
     case CALCULATE_EXTERNAL_LUMINANCE:
+        Serial.println("Calculating external luminance");
         measurement = analogRead(A0);
-        outside_illuminance = sensor_value_to_lux(measurement);
-        send_message_to_bus(ACKNOWLEDGE);
+        external_illuminance = sensor_value_to_lux(measurement);
+        send_message_to_bus(ACKNOWLEDGE, node_id);
+        break;
+    case CALCULATE_DISTURBANCE_COEFF:
+        // The optional_param is the position to be measured
+        Serial.print("Calculating disturbance: ");
+        Serial.println(b_message[1]);
+        measurement = analogRead(A0);
+        k_ij[b_message[1]] = sensor_value_to_lux(measurement) - external_illuminance;
+        send_message_to_bus(ACKNOWLEDGE, node_id);
+        Serial.println("Calculated");
         break;
     case ACKNOWLEDGE:
-        if (last_ack_id != b_message[2])
-        {
-            number_of_acks_received += 1;
-            last_ack_id = b_message[2];
-        }
+        number_of_acks_received += 1;
         break;
     case CALIBRATION_COMPLETED:
         is_calibrated = true;
+
+        Serial.println("Valores da calibração:");
+        Serial.print("\to_");
+        Serial.print(node_id);
+        Serial.print(": ");
+        Serial.println(external_illuminance);
+        for (int i = 0; i >= 2; i++)
+        {
+            Serial.print("\tk_{");
+            Serial.print(node_id);
+            Serial.print(i);
+            Serial.print("}: ");
+            Serial.println(k_ij[i]);
+        }
+        break;
+    case TURN_ON_LED:
+        Serial.print("LED ON: ");
+        Serial.println(b_message[1]);
+        // The optional_param is the node_id to turn on
+        if (b_message[1] == node_id)
+        {
+            Serial.println("LED ON :)");
+            analogWrite(LED_PIN, 4095);
+            send_message_to_bus(ACKNOWLEDGE, node_id);
+        }
+        break;
+
+    case TURN_OFF_LED:
+        Serial.print("LED OFF: ");
+        Serial.println(b_message[1]);
+        if (b_message[1] == node_id)
+        {
+            Serial.println("LED OFF :)");
+            analogWrite(LED_PIN, 0);
+            send_message_to_bus(ACKNOWLEDGE, node_id);
+        }
         break;
 
     default:
@@ -180,40 +224,9 @@ void process_message_from_bus(uint8_t *b_message)
     }
 
     b_message[0] = NOTHING;
-    // if (b_message[0] == TURN_ON_LED && b_message[1] == node_address)
-    // {
-    //     analogWrite(LED_PIN, 4095);
-    //     send_message_to_bus(ACKNOWLEDGE);
-    //     b_message[0] = NOTHING;
-    // }
-    // else if (b_message[0] == TURN_OFF_LED)
-    // {
-    //     Serial.println("turn off light");
-    //     analogWrite(LED_PIN, 0);
-    //     send_message_to_bus(ACKNOWLEDGE);
-    //     b_message[0] = NOTHING;
-    // }
-    // else if (b_message[0] == MEASUREMENT)
-    // {
-    //     int measurement = analogRead(A0);
-    //     if (step_to_calibrate == 0)
-    //     {
-    //         Serial.print("measure the outside: ");
-    //         outside_illuminance = measurement;
-    //         step_to_calibrate += 1;
-    //         Serial.println(outside_illuminance);
-    //     }
-    //     else
-    //     {
-    //         Serial.print("Calculating k[");
-    //         Serial.print(step_to_calibrate);
-    //         Serial.print("]:");
-    //         k_ij[step_to_calibrate - 1] = (measurement - outside_illuminance) / (4095);
-    //         Serial.print(k_ij[step_to_calibrate - 1]);
-    //     }
-    //     send_message_to_bus(ACKNOWLEDGE);
-    //     b_message[0] = NOTHING;
 }
+
+int loop_number = 0;
 
 void loop()
 {
@@ -221,10 +234,10 @@ void loop()
     uint32_t msg;
     process_user_request();
     run_state_machine();
-
     int measurement;
     if (timer_fired)
     {
+        Serial.println("Hello :)");
         if (current_state == START)
         {
             send_message_to_bus(WAKE_UP, number_of_detected_nodes);
@@ -260,11 +273,15 @@ void loop()
                 switch (step_to_calibrate)
                 {
                 case 0:
+                    Serial.println("#######################");
+                    Serial.println("Starting calibration...");
+                    Serial.println("#######################\n");
+                    Serial.println("### Step 1: Calculating external luminance");
                     // Tell others to calculate o_i
                     send_message_to_bus(CALCULATE_EXTERNAL_LUMINANCE);
                     // Calculate o_i
                     measurement = analogRead(A0);
-                    outside_illuminance = sensor_value_to_lux(measurement);
+                    external_illuminance = sensor_value_to_lux(measurement);
                     step_to_calibrate += 1;
 
                     // Ack timeout timer
@@ -276,21 +293,190 @@ void loop()
                     {
                         step_to_calibrate += 1;
                     }
-                    if (millis() - waiting_ack_timer > 2000)
+                    else if (millis() - waiting_ack_timer > 1000)
                     {
-                        Serial.println("Timout!!!");
+                        Serial.println("Timeout on step 1");
                         step_to_calibrate -= 1;
                     }
                     break;
                 case 2:
+                    Serial.println("### Step 2: Calculating k_{i1}");
+                    analogWrite(LED_PIN, 4095);
+                    delay(100);
+                    // Tell others to calculate k_ij
+                    send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 0);
+                    // Calculate k_ij
+                    measurement = analogRead(A0);
+                    k_ij[0] = sensor_value_to_lux(measurement) - external_illuminance;
+                    step_to_calibrate += 1;
+
+                    // Ack timeout timer
+                    waiting_ack_timer = millis();
+                    number_of_acks_received = 0;
+                    break;
+                case 3:
+                    if (number_of_acks_received == 2)
+                    {
+                        step_to_calibrate += 1;
+                        analogWrite(LED_PIN, 0);
+                        delay(100);
+                    }
+                    else if (millis() - waiting_ack_timer > 1000)
+                    {
+                        Serial.println("Timeout on step 2: Calc dist coef");
+                        step_to_calibrate -= 1;
+                    }
+                    break;
+                case 4:
+                    Serial.println("### Step 3: Calculating k_{i2}");
+                    send_message_to_bus(TURN_ON_LED, 1);
+                    waiting_ack_timer = millis();
+                    number_of_acks_received = 0;
+                    step_to_calibrate += 1;
+                    break;
+                case 5:
+                    if (number_of_acks_received == 1)
+                    {
+                        step_to_calibrate += 1;
+                    }
+                    else if (millis() - waiting_ack_timer > 1000)
+                    {
+                        Serial.println("Timeout on step 3: Turning LED ON");
+                        step_to_calibrate -= 1;
+                    }
+                    break;
+                case 6:
+                    delay(100);
+                    // Tell others to calculate k_ij
+                    send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 1);
+                    // Calculate k_ij
+                    measurement = analogRead(A0);
+                    k_ij[1] = sensor_value_to_lux(measurement) - external_illuminance;
+                    step_to_calibrate += 1;
+
+                    // Ack timeout timer
+                    waiting_ack_timer = millis();
+                    number_of_acks_received = 0;
+                    break;
+                case 7:
+                    if (number_of_acks_received == 2)
+                    {
+                        step_to_calibrate += 1;
+                    }
+                    else if (millis() - waiting_ack_timer > 1000)
+                    {
+                        Serial.println("Timeout on step 3: Calc k");
+                        step_to_calibrate -= 1;
+                    }
+                    break;
+                case 8:
+                    send_message_to_bus(TURN_OFF_LED, 1);
+                    delay(100);
+                    waiting_ack_timer = millis();
+                    number_of_acks_received = 0;
+                    step_to_calibrate += 1;
+                    break;
+                case 9:
+                    if (number_of_acks_received == 1)
+                    {
+                        step_to_calibrate += 1;
+                    }
+                    else if (millis() - waiting_ack_timer > 1000)
+                    {
+                        Serial.println("Timeout on step 3: Turning LED off");
+                        step_to_calibrate -= 1;
+                    }
+                    break;
+                case 10:
+                    Serial.println("### Step 4: Calculating k_{i3}");
+                    send_message_to_bus(TURN_ON_LED, 2);
+                    delay(100);
+                    waiting_ack_timer = millis();
+                    number_of_acks_received = 0;
+                    step_to_calibrate += 1;
+                    break;
+                case 11:
+                    if (number_of_acks_received == 1)
+                    {
+                        step_to_calibrate += 1;
+                    }
+                    else if (millis() - waiting_ack_timer > 1000)
+                    {
+                        Serial.println("Timeout on step 4: Turning LED ON");
+                        step_to_calibrate -= 1;
+                    }
+                    break;
+                case 12:
+                    delay(100);
+                    // Tell others to calculate k_ij
+                    send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 2);
+                    // Calculate k_ij
+                    measurement = analogRead(A0);
+                    k_ij[1] = sensor_value_to_lux(measurement) - external_illuminance;
+                    step_to_calibrate += 1;
+
+                    // Ack timeout timer
+                    waiting_ack_timer = millis();
+                    number_of_acks_received = 0;
+                    break;
+                case 13:
+                    if (number_of_acks_received == 2)
+                    {
+                        step_to_calibrate += 1;
+                    }
+                    else if (millis() - waiting_ack_timer > 1000)
+                    {
+                        Serial.println("Timeout on step 4: Calc k");
+                        step_to_calibrate -= 1;
+                    }
+                    break;
+                case 14:
+                    Serial.println("ENVIANDO MENSAGEM!!!");
+                    send_message_to_bus(TURN_OFF_LED, 2);
+                    delay(100);
+                    number_of_acks_received = 0;
+                    step_to_calibrate += 1;
+                    // Ack timeout timer
+                    waiting_ack_timer = millis();
+                    number_of_acks_received = 0;
+                    break;
+                case 15:
+                    if (number_of_acks_received == 1)
+                    {
+                        step_to_calibrate += 1;
+                    }
+                    else if (millis() - waiting_ack_timer > 5000)
+                    {
+                        Serial.println("Timeout on step 4: Turning LED off");
+                        step_to_calibrate -= 1;
+                    }
+                    break;
+                case 16:
                     send_message_to_bus(CALIBRATION_COMPLETED);
                     is_calibrated = true;
+
+                    Serial.println("Valores da calibração:");
+                    Serial.print("\to_0: ");
+                    Serial.println(external_illuminance);
+                    for (int i = 0; i >= 2; i++)
+                    {
+                        Serial.print("\tk_{0");
+                        Serial.print(i);
+                        Serial.print("}: ");
+                        Serial.println(k_ij[i]);
+                    }
+                    break;
                 default:
-                    Serial.println("OK");
+                    Serial.println("???");
                     break;
                 }
             }
+            else
+            {
+                Serial.println("I'm not the Hub :)");
+            }
         }
+
         if (current_state == MANUAL || current_state == AUTO)
         {
             Serial.println("AUTO");
@@ -353,8 +539,8 @@ void loop()
         {
             uint16_t val = msg;
 
-            Serial.print("Received");
-            print_message(counterRx, node_address, b_read_message[2], val);
+            // Serial.print("Received");
+            // print_message(counterRx, node_address, b_read_message[2], val);
 
             counterRx++;
         }
