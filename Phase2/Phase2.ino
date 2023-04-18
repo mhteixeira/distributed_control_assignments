@@ -64,14 +64,15 @@ enum States
 
 enum TypeMessage
 {
-    NOTHING,
-    WAKE_UP,
-    CALCULATE_EXTERNAL_LUMINANCE,
-    CALCULATE_DISTURBANCE_COEFF,
-    TURN_ON_LED,
-    TURN_OFF_LED,
-    ACKNOWLEDGE,
-    CALIBRATION_COMPLETED
+    NOTHING,                      // 0
+    WAKE_UP,                      // 1
+    CALCULATE_EXTERNAL_LUMINANCE, // 2
+    CALCULATE_DISTURBANCE_COEFF,  // 3
+    TURN_ON_LED,                  // 4
+    USELESS,                      // 5
+    TURN_OFF_LED,                 // 6
+    ACKNOWLEDGE,                  // 7
+    CALIBRATION_COMPLETED         // 8
 };
 
 // Variables for calibration
@@ -147,10 +148,10 @@ void send_message_to_bus(TypeMessage type_of_message, int optional_param = 0)
 {
     uint8_t b_write_message[4];
 
-    b_write_message[3] = ICC_WRITE_DATA;
-    b_write_message[2] = node_address;
     b_write_message[0] = type_of_message;
     b_write_message[1] = optional_param;
+    b_write_message[2] = node_address;
+    b_write_message[3] = ICC_WRITE_DATA;
 
     delay(node_address);
     rp2040.fifo.push(bytes_to_msg(b_write_message));
@@ -178,11 +179,12 @@ void process_message_from_bus(uint8_t *b_message)
         break;
     case ACKNOWLEDGE:
         number_of_acks_received += 1;
+        Serial.println("Oi :)");
         break;
     case CALIBRATION_COMPLETED:
         is_calibrated = true;
 
-        Serial.println("Valores da calibração:");
+        Serial.println("Valores da calibracao:");
         Serial.print("\to_");
         Serial.print(node_id);
         Serial.print(": ");
@@ -222,7 +224,8 @@ void process_message_from_bus(uint8_t *b_message)
     default:
         break;
     }
-
+    Serial.print("Oi oi oi");
+    Serial.println(b_message[0]);
     b_message[0] = NOTHING;
 }
 
@@ -234,6 +237,10 @@ void loop()
     uint32_t msg;
     process_user_request();
     run_state_machine();
+    if ((step_to_calibrate == 15) && (node_id == 2))
+    {
+        Serial.print("Led?");
+    }
     int measurement;
     if (timer_fired)
     {
@@ -329,7 +336,7 @@ void loop()
                     break;
                 case 4:
                     Serial.println("### Step 3: Calculating k_{i2}");
-                    send_message_to_bus(TURN_ON_LED, 1);
+                    send_message_to_bus(TURN_ON_LED, 2);
                     waiting_ack_timer = millis();
                     number_of_acks_received = 0;
                     step_to_calibrate += 1;
@@ -348,7 +355,7 @@ void loop()
                 case 6:
                     delay(100);
                     // Tell others to calculate k_ij
-                    send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 1);
+                    send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 2);
                     // Calculate k_ij
                     measurement = analogRead(A0);
                     k_ij[1] = sensor_value_to_lux(measurement) - external_illuminance;
@@ -370,7 +377,7 @@ void loop()
                     }
                     break;
                 case 8:
-                    send_message_to_bus(TURN_OFF_LED, 1);
+                    send_message_to_bus(TURN_OFF_LED, 2);
                     delay(100);
                     waiting_ack_timer = millis();
                     number_of_acks_received = 0;
@@ -389,7 +396,7 @@ void loop()
                     break;
                 case 10:
                     Serial.println("### Step 4: Calculating k_{i3}");
-                    send_message_to_bus(TURN_ON_LED, 2);
+                    send_message_to_bus(TURN_ON_LED, 1);
                     delay(100);
                     waiting_ack_timer = millis();
                     number_of_acks_received = 0;
@@ -409,7 +416,7 @@ void loop()
                 case 12:
                     delay(100);
                     // Tell others to calculate k_ij
-                    send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 2);
+                    send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 1);
                     // Calculate k_ij
                     measurement = analogRead(A0);
                     k_ij[1] = sensor_value_to_lux(measurement) - external_illuminance;
@@ -432,7 +439,7 @@ void loop()
                     break;
                 case 14:
                     Serial.println("ENVIANDO MENSAGEM!!!");
-                    send_message_to_bus(TURN_OFF_LED, 2);
+                    send_message_to_bus(TURN_OFF_LED, 1);
                     delay(100);
                     number_of_acks_received = 0;
                     step_to_calibrate += 1;
@@ -455,7 +462,7 @@ void loop()
                     send_message_to_bus(CALIBRATION_COMPLETED);
                     is_calibrated = true;
 
-                    Serial.println("Valores da calibração:");
+                    Serial.println("Valores da calibracao:");
                     Serial.print("\to_0: ");
                     Serial.println(external_illuminance);
                     for (int i = 0; i >= 2; i++)
@@ -479,7 +486,19 @@ void loop()
 
         if (current_state == MANUAL || current_state == AUTO)
         {
-            Serial.println("AUTO");
+            Serial.println("Valores da calibracao:");
+            Serial.print("\to_");
+            Serial.print(node_id);
+            Serial.print(": ");
+            Serial.println(external_illuminance);
+            for (int i = 0; i >= 2; i++)
+            {
+                Serial.print("\tk_{");
+                Serial.print(node_id);
+                Serial.print(i);
+                Serial.print("}: ");
+                Serial.println(k_ij[i]);
+            }
             sensor_value = analogRead(A0);
             lux = sensor_value_to_lux(sensor_value);
 
@@ -557,6 +576,7 @@ void loop()
         }
 
         process_message_from_bus(b_read_message);
+        Serial.println("voltou :)");
     }
 }
 
