@@ -1,6 +1,6 @@
 void process_user_request()
 {
-    if (Serial.available())
+    if (Serial.available() == true && node_id == 0)
     {
         bool is_command_valid = true;
         String request = Serial.readStringUntil('\n');
@@ -104,20 +104,62 @@ void process_user_request()
                 Serial.println(millis() - restart_time);
                 break;
             case 'e':
-                Serial.print("e ");
-                Serial.println(buffer.get_accumulated_energy_consumption(delta_t, p_max), 10);
+                switch (request.charAt(4)){
+                    case '0':
+                        Serial.print("e ");
+                        Serial.println(buffer.get_accumulated_energy_consumption(delta_t, p_max), 10);
+                        break;
+                    case '1':
+                        send_message_to_bus(GET_ACC_ENERGY_CONSUMPTION, net_addresses[1]);
+                        break;
+                    case '2':
+                        send_message_to_bus(GET_ACC_ENERGY_CONSUMPTION, net_addresses[2]);
+                        break;
+                }
+                
                 break;
             case 'v':
-                Serial.print("v ");
-                Serial.println(buffer.get_accumulated_visibility_error(), 10);
+                switch (request.charAt(4)){
+                    case '0':
+                        Serial.print("v ");    
+                        Serial.println(buffer.get_accumulated_visibility_error(), 10);
+                        break;
+                    case '1':
+                        send_message_to_bus(GET_AVG_VISIBILITY_ERROR, net_addresses[1]);
+                        break;
+                    case '2':
+                        send_message_to_bus(GET_AVG_VISIBILITY_ERROR, net_addresses[2]);
+                        break;
+                }
                 break;
             case 'f':
-                Serial.print("f ");
-                Serial.println(buffer.get_accumulated_flicker_error(), 10);
+                switch (request.charAt(4)){
+                    case '0':
+                        Serial.print("f ");    
+                        Serial.println(buffer.get_accumulated_visibility_error(), 10);
+                        break;
+                    case '1':
+                        send_message_to_bus(GET_AVG_FLICKER_ERROR, net_addresses[1]);
+                        break;
+                    case '2':
+                        send_message_to_bus(GET_AVG_FLICKER_ERROR, net_addresses[2]);
+                        break;
+                }
                 break;
             case 'p':
-                Serial.print("p ");
-                Serial.println(p_max * pwm / 255.0f);
+                switch (request.charAt(4)){
+                    case '0':
+                        Serial.print("p ");
+                        Serial.println(p_max * pwm / 255.0f);
+                        break;
+                    case '1':
+                        send_message_to_bus(GET_INSTANTANEOUS_POWER, net_addresses[1]);
+                        break;
+                    case '2':
+                        send_message_to_bus(GET_INSTANTANEOUS_POWER, net_addresses[2]);
+                        break;
+
+                }
                 break;
             case 'r':
                 Serial.print("r ");
@@ -374,7 +416,7 @@ void run_state_machine()
     case CALIBRATION:
         if (is_calibrated)
         {
-            current_state = CONSENSUS;
+            current_state = AUTO;
             Serial.println("\n#######################");
             Serial.println("Calibration finished");
             Serial.println("#######################\n");
