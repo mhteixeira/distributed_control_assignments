@@ -120,6 +120,48 @@ void print_calibration()
 }
 
 ///////////////////////////
+// Consensus variables   //
+///////////////////////////
+
+struct nodes
+{
+    int index;
+    float d[3];
+    float d_av[3];
+    float y[3];
+    float k[3];
+    float n;
+    float m;
+    float c[3];
+    float o;
+    float L;
+};
+
+uint8_t uint8_to_float_aux_array[4] = {0, 0, 0, 0};
+
+bool uint8_to_float_receptions[4] = {false, false, false, false};
+void reset_receptions_array()
+{
+    uint8_to_float_receptions[0] = false;
+    uint8_to_float_receptions[1] = false;
+    uint8_to_float_receptions[2] = false;
+    uint8_to_float_receptions[3] = false;
+}
+
+float d_matrix[3][3] = {
+    {1, 2, 3},
+    {0, 0, 0},
+    {0, 0, 0}};
+
+float l[3]{0, 0, 0};
+float d[3]{0, 0, 0};
+float rho = 1;
+float c = 1;
+struct nodes control_agent = {{0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0}, {0}, {0, 0, 0}, {0}, {0}};
+int step_to_consensus = 0;
+float cost;
+
+///////////////////////////
 // CAN Bus Variables     //
 ///////////////////////////
 
@@ -163,8 +205,7 @@ enum TypeMessage
 
 int get_node_id_from_address(int node_address)
 {
-    node_id = (net_addresses[0] < node_address) + (net_addresses[1] < node_address) + (net_addresses[2] < node_address);
-    return node_id;
+    return (net_addresses[0] < node_address) + (net_addresses[1] < node_address) + (net_addresses[2] < node_address);
 }
 
 void send_message_to_bus(TypeMessage type_of_message, int optional_param = 0)
@@ -182,7 +223,7 @@ void send_message_to_bus(TypeMessage type_of_message, int optional_param = 0)
 void process_message_from_bus(uint8_t *b_message)
 {
     int measurement;
-    // int receiving_id;
+    int receiving_id;
     switch (b_message[0])
     {
     case WAKE_UP:
@@ -232,44 +273,25 @@ void process_message_from_bus(uint8_t *b_message)
         is_calibrated = true;
         break;
     case FLOAT_PT1:
-        receiving_id = get_node_id_from_address(b_message[2]);
-        Serial.println(receiving_id);
+        uint8_to_float_aux_array[0] = b_message[1];
+        uint8_to_float_receptions[0] = true;
+        break;
+    case FLOAT_PT2:
+        uint8_to_float_aux_array[1] = b_message[1];
+        uint8_to_float_receptions[1] = true;
+        break;
+    case FLOAT_PT3:
+        uint8_to_float_aux_array[2] = b_message[1];
+        uint8_to_float_receptions[2] = true;
+        break;
+    case FLOAT_PT4:
+        uint8_to_float_aux_array[3] = b_message[1];
+        uint8_to_float_receptions[3] = true;
         break;
     default:
         break;
     }
 }
-
-///////////////////////////
-// Consensus variables   //
-///////////////////////////
-
-struct nodes
-{
-    int index;
-    float d[3];
-    float d_av[3];
-    float y[3];
-    float k[3];
-    float n;
-    float m;
-    float c[3];
-    float o;
-    float L;
-};
-
-float d_matrix[3][3] = {
-    {1, 2, 3},
-    {0, 0, 0},
-    {0, 0, 0}};
-
-float l[3]{0, 0, 0};
-float d[3]{0, 0, 0};
-float rho = 1;
-float c = 1;
-struct nodes control_agent = {{0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0}, {0}, {0, 0, 0}, {0}, {0}};
-int step_to_consensus = 0;
-float cost;
 
 //////////////////////////////
 // Core0:                   //
@@ -576,81 +598,366 @@ void loop()
             analogWrite(LED_PIN, pwm);
         }
 
-        timer_fired = false;
-    }
-
-    if (current_state == CONSENSUS)
-    {
-        switch (step_to_consensus)
+        if (current_state == CONSENSUS)
         {
-        case 0:
-            cost = consensus_iterate(control_agent, rho, 3, d_matrix[node_id]);
+            int j;
+            switch (step_to_consensus)
+            {
+            case 0:
+                Serial.println("Calculating things");
+                cost = consensus_iterate(control_agent, rho, 3, d_matrix[node_id]);
 
-            for (int j = 0; j < 3; j++)
-            {
-                control_agent.d[j] = d_matrix[node_id][j];
-            }
-            step_to_consensus++;
-            break;
-        case 1:
-            if (node_id == 0)
-            {
-                for (int j = 0; j < 3; j++)
+                for (j = 0; j < 3; j++)
+                {
+                    control_agent.d[j] = d_matrix[node_id][j];
+                }
+                number_of_acks_received = 0;
+                step_to_consensus++;
+                break;
+            case 1:
+                Serial.println("1");
+                j = 0;
+                if (node_id == 0)
                 {
                     uint8_t *array;
-                    array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+                    float test = 0.5;
+                    // array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+                    array = reinterpret_cast<uint8_t *>(&test);
                     send_message_to_bus(FLOAT_PT1, array[0]);
                     send_message_to_bus(FLOAT_PT2, array[1]);
                     send_message_to_bus(FLOAT_PT3, array[2]);
                     send_message_to_bus(FLOAT_PT4, array[3]);
+                    Serial.print("Acks: ");
+                    Serial.println(number_of_acks_received);
+                    if (number_of_acks_received <= 2)
+                    {
+                        step_to_consensus++;
+                        number_of_acks_received = 0;
+                    }
                 }
+                else
+                {
+                    if (uint8_to_float_receptions[0] && uint8_to_float_receptions[1] && uint8_to_float_receptions[2] && uint8_to_float_receptions[3])
+                    {
+                        d_matrix[0][j] = *reinterpret_cast<float *>(uint8_to_float_aux_array);
+                        reset_receptions_array();
+                        send_message_to_bus(ACKNOWLEDGE);
+                        step_to_consensus++;
+                        number_of_acks_received = 0;
+                    };
+                }
+
+                break;
+            case 2:
+                Serial.println("2");
+                j = 1;
+                if (node_id == 0)
+                {
+                    uint8_t *array;
+                    float test = 0.5;
+                    // array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+                    array = reinterpret_cast<uint8_t *>(&test);
+                    send_message_to_bus(FLOAT_PT1, array[0]);
+                    send_message_to_bus(FLOAT_PT2, array[1]);
+                    send_message_to_bus(FLOAT_PT3, array[2]);
+                    send_message_to_bus(FLOAT_PT4, array[3]);
+                    Serial.print("Acks: ");
+                    Serial.println(number_of_acks_received);
+                    if (number_of_acks_received == 2)
+                    {
+                        step_to_consensus++;
+                        number_of_acks_received = 0;
+                    }
+                }
+                else
+                {
+                    if (uint8_to_float_receptions[0] && uint8_to_float_receptions[1] && uint8_to_float_receptions[2] && uint8_to_float_receptions[3])
+                    {
+                        d_matrix[0][j] = *reinterpret_cast<float *>(uint8_to_float_aux_array);
+                        reset_receptions_array();
+                        send_message_to_bus(ACKNOWLEDGE);
+                        Serial.println("Sent ack");
+                        step_to_consensus++;
+                        number_of_acks_received = 0;
+                    };
+                }
+
+                break;
+            // case 3:
+            //     Serial.println("3");
+            //     j = 2;
+            //     if (node_id == 0)
+            //     {
+            //         uint8_t *array;
+            //         float test = 0.5;
+            //         // array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+            //         array = reinterpret_cast<uint8_t *>(&test);
+            //         send_message_to_bus(FLOAT_PT1, array[0]);
+            //         send_message_to_bus(FLOAT_PT2, array[1]);
+            //         send_message_to_bus(FLOAT_PT3, array[2]);
+            //         send_message_to_bus(FLOAT_PT4, array[3]);
+
+            //         if (number_of_acks_received == 2)
+            //         {
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         }
+            //     }
+            //     else
+            //     {
+            //         if (uint8_to_float_receptions[0] && uint8_to_float_receptions[1] && uint8_to_float_receptions[2] && uint8_to_float_receptions[3])
+            //         {
+            //             d_matrix[0][j] = *reinterpret_cast<float *>(uint8_to_float_aux_array);
+            //             reset_receptions_array();
+            //             send_message_to_bus(ACKNOWLEDGE);
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         };
+            //     }
+            //     break;
+            // case 4:
+            //     Serial.println("4");
+            //     j = 0;
+            //     if (node_id == 1)
+            //     {
+            //         uint8_t *array;
+            //         float test = 0.5;
+            //         // array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+            //         array = reinterpret_cast<uint8_t *>(&test);
+            //         send_message_to_bus(FLOAT_PT1, array[0]);
+            //         send_message_to_bus(FLOAT_PT2, array[1]);
+            //         send_message_to_bus(FLOAT_PT3, array[2]);
+            //         send_message_to_bus(FLOAT_PT4, array[3]);
+
+            //         if (number_of_acks_received == 2)
+            //         {
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         }
+            //     }
+            //     else
+            //     {
+            //         if (uint8_to_float_receptions[0] && uint8_to_float_receptions[1] && uint8_to_float_receptions[2] && uint8_to_float_receptions[3])
+            //         {
+            //             d_matrix[0][j] = *reinterpret_cast<float *>(uint8_to_float_aux_array);
+            //             reset_receptions_array();
+            //             send_message_to_bus(ACKNOWLEDGE);
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         };
+            //     }
+
+            //     break;
+            // case 5:
+            //     Serial.println("5");
+            //     j = 1;
+            //     if (node_id == 1)
+            //     {
+            //         uint8_t *array;
+            //         float test = 0.5;
+            //         // array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+            //         array = reinterpret_cast<uint8_t *>(&test);
+            //         send_message_to_bus(FLOAT_PT1, array[0]);
+            //         send_message_to_bus(FLOAT_PT2, array[1]);
+            //         send_message_to_bus(FLOAT_PT3, array[2]);
+            //         send_message_to_bus(FLOAT_PT4, array[3]);
+
+            //         if (number_of_acks_received == 2)
+            //         {
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         }
+            //     }
+            //     else
+            //     {
+            //         if (uint8_to_float_receptions[0] && uint8_to_float_receptions[1] && uint8_to_float_receptions[2] && uint8_to_float_receptions[3])
+            //         {
+            //             d_matrix[0][j] = *reinterpret_cast<float *>(uint8_to_float_aux_array);
+            //             reset_receptions_array();
+            //             send_message_to_bus(ACKNOWLEDGE);
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         };
+            //     }
+
+            //     break;
+            // case 6:
+            //     Serial.println("6");
+            //     j = 2;
+            //     if (node_id == 1)
+            //     {
+            //         uint8_t *array;
+            //         float test = 0.5;
+            //         // array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+            //         array = reinterpret_cast<uint8_t *>(&test);
+            //         send_message_to_bus(FLOAT_PT1, array[0]);
+            //         send_message_to_bus(FLOAT_PT2, array[1]);
+            //         send_message_to_bus(FLOAT_PT3, array[2]);
+            //         send_message_to_bus(FLOAT_PT4, array[3]);
+
+            //         if (number_of_acks_received == 2)
+            //         {
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         }
+            //     }
+            //     else
+            //     {
+            //         if (uint8_to_float_receptions[0] && uint8_to_float_receptions[1] && uint8_to_float_receptions[2] && uint8_to_float_receptions[3])
+            //         {
+            //             d_matrix[0][j] = *reinterpret_cast<float *>(uint8_to_float_aux_array);
+            //             reset_receptions_array();
+            //             send_message_to_bus(ACKNOWLEDGE);
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         };
+            //     }
+
+            //     break;
+            // case 7:
+            //     Serial.println("7");
+            //     j = 0;
+            //     if (node_id == 2)
+            //     {
+            //         uint8_t *array;
+            //         float test = 0.5;
+            //         // array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+            //         array = reinterpret_cast<uint8_t *>(&test);
+            //         send_message_to_bus(FLOAT_PT1, array[0]);
+            //         send_message_to_bus(FLOAT_PT2, array[1]);
+            //         send_message_to_bus(FLOAT_PT3, array[2]);
+            //         send_message_to_bus(FLOAT_PT4, array[3]);
+
+            //         if (number_of_acks_received == 2)
+            //         {
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         }
+            //     }
+            //     else
+            //     {
+            //         if (uint8_to_float_receptions[0] && uint8_to_float_receptions[1] && uint8_to_float_receptions[2] && uint8_to_float_receptions[3])
+            //         {
+            //             d_matrix[0][j] = *reinterpret_cast<float *>(uint8_to_float_aux_array);
+            //             reset_receptions_array();
+            //             send_message_to_bus(ACKNOWLEDGE);
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         };
+            //     }
+
+            //     break;
+            // case 8:
+            //     Serial.println("8");
+            //     j = 1;
+            //     if (node_id == 2)
+            //     {
+            //         uint8_t *array;
+            //         float test = 0.5;
+            //         // array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+            //         array = reinterpret_cast<uint8_t *>(&test);
+            //         send_message_to_bus(FLOAT_PT1, array[0]);
+            //         send_message_to_bus(FLOAT_PT2, array[1]);
+            //         send_message_to_bus(FLOAT_PT3, array[2]);
+            //         send_message_to_bus(FLOAT_PT4, array[3]);
+
+            //         if (number_of_acks_received == 2)
+            //         {
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         }
+            //     }
+            //     else
+            //     {
+            //         if (uint8_to_float_receptions[0] && uint8_to_float_receptions[1] && uint8_to_float_receptions[2] && uint8_to_float_receptions[3])
+            //         {
+            //             d_matrix[0][j] = *reinterpret_cast<float *>(uint8_to_float_aux_array);
+            //             reset_receptions_array();
+            //             send_message_to_bus(ACKNOWLEDGE);
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         };
+            //     }
+
+            //     break;
+            // case 9:
+            //     Serial.println("9");
+            //     j = 2;
+            //     if (node_id == 2)
+            //     {
+            //         uint8_t *array;
+            //         float test = 0.5;
+            //         // array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+            //         array = reinterpret_cast<uint8_t *>(&test);
+            //         send_message_to_bus(FLOAT_PT1, array[0]);
+            //         send_message_to_bus(FLOAT_PT2, array[1]);
+            //         send_message_to_bus(FLOAT_PT3, array[2]);
+            //         send_message_to_bus(FLOAT_PT4, array[3]);
+
+            //         if (number_of_acks_received == 2)
+            //         {
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         }
+            //     }
+            //     else
+            //     {
+            //         if (uint8_to_float_receptions[0] && uint8_to_float_receptions[1] && uint8_to_float_receptions[2] && uint8_to_float_receptions[3])
+            //         {
+            //             d_matrix[0][j] = *reinterpret_cast<float *>(uint8_to_float_aux_array);
+            //             reset_receptions_array();
+            //             send_message_to_bus(ACKNOWLEDGE);
+            //             step_to_consensus++;
+            //             number_of_acks_received = 0;
+            //         };
+            //     }
+
+            //     break;
+            case 3:
+                Serial.println(d_matrix[0][0]);
+                Serial.println(d_matrix[0][1]);
+                Serial.println(" ");
+                break;
+            default:
+                break;
             }
-            break;
-        case 2:
-            break;
-        default:
-            break;
-        }
 
-        // float test = 0.5;
-        // uint8_t *array;
-        // array = reinterpret_cast<uint8_t *>(&test);
-        // Serial.println(array[0]);
-        // Serial.println(array[1]);
-        // Serial.println(array[2]);
-        // Serial.println(array[3]);
-        // float test_back = *reinterpret_cast<float *>(array);
-        // Serial.println(test_back);
-        // Serial.println("");
+            // float test = 0.5;
+            // uint8_t *array;
+            // array = reinterpret_cast<uint8_t *>(&test);
+            // Serial.println(array[0]);
+            // Serial.println(array[1]);
+            // Serial.println(array[2]);
+            // Serial.println(array[3]);
+            // float test_back = *reinterpret_cast<float *>(array);
+            // Serial.println(test_back);
+            // Serial.println("");
 
-        // send_message_to_bus(FLOAT_PT1, array[0]);
-        // send_message_to_bus(FLOAT_PT2, array[1]);
-        // send_message_to_bus(FLOAT_PT3, array[2]);
-        // send_message_to_bus(FLOAT_PT4, array[3]);
+            // send_message_to_bus(FLOAT_PT1, array[0]);
+            // send_message_to_bus(FLOAT_PT2, array[1]);
+            // send_message_to_bus(FLOAT_PT3, array[2]);
+            // send_message_to_bus(FLOAT_PT4, array[3]);
 
-        // Vou ter que usar uma série de steps, assim como na calibração, pra tudo acontecer de forma síncrona
+            // Vou ter que usar uma série de steps, assim como na calibração, pra tudo acontecer de forma síncrona
 
-        if (node_id == 0)
-        {
             // Envio e espero 2 acks
-        }
-        else
-        {
-        }
-        // Passos:
-        //      1. Se eu for o 0, eu envio cada byte e espero 2 acks
-        //      2. Quem recebe manda um ack a cada, quando completa 4 forma o float e guarda
-        //      3. Se eu for o 1, eu envio cada byte e espero 2 acks
-        //      4.
-        //      5.
+            // Passos:
+            //      1. Se eu for o 0, eu envio cada byte e espero 2 acks
+            //      2. Quem recebe manda um ack a cada, quando completa 4 forma o float e guarda
+            //      3. Se eu for o 1, eu envio cada byte e espero 2 acks
+            //      4.
+            //      5.
 
-        // Comunication with other nodes to get both d[j] from each node
+            // Comunication with other nodes to get both d[j] from each node
 
-        // for (int j = 0; j < 3; j++)
-        // {
-        //     control_agent.d_av[j] = (control_agent.d[j] + node2.d[j] + node3.d[j]) / 3;
-        //     control_agent.y[j] = control_agent.y[j] + rho * (control_agent.d[j] - control_agent.d_av[j]);
-        // }
+            // for (int j = 0; j < 3; j++)
+            // {
+            //     control_agent.d_av[j] = (control_agent.d[j] + node2.d[j] + node3.d[j]) / 3;
+            //     control_agent.y[j] = control_agent.y[j] + rho * (control_agent.d[j] - control_agent.d_av[j]);
+            // }
+        }
+
+        timer_fired = false;
     }
 
     // Interrupção para o FIFO
