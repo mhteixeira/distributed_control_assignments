@@ -45,7 +45,7 @@ void client::start_read_server()     {
             std::istream is {&input_buffer };                    
             std::getline(is, line);                   
             if (!line.empty())                         
-               std::cout << "Received: " << line << "\n";                   
+               std::cout << line << "\n";                   
             start_read_server();                
          }               
          else                 
