@@ -348,6 +348,7 @@ void process_message_from_bus(uint8_t *b_message)
             Serial.print(b_message[1]);
             Serial.println(b_message[4]);
         }
+        break;
     default:
         break;
     }
