@@ -204,6 +204,10 @@ enum TypeMessage
     FLOAT_PT2,
     FLOAT_PT3,
     FLOAT_PT4,
+    GET_ACC_ENERGY_CONSUMPTION,
+    GET_AVG_VISIBILITY_ERROR,
+    GET_AVG_FLICKER_ERROR,
+    GET_INSTANTANEOUS_POWER
 };
 
 int get_node_id_from_address(int node_address)
@@ -211,14 +215,15 @@ int get_node_id_from_address(int node_address)
     return (net_addresses[0] < node_address) + (net_addresses[1] < node_address) + (net_addresses[2] < node_address);
 }
 
-void send_message_to_bus(TypeMessage type_of_message, int optional_param = 0)
+void send_message_to_bus(TypeMessage type_of_message, int optional_param = 0, int value = 0)
 {
-    uint8_t b_write_message[4];
+    uint8_t b_write_message[5];
 
     b_write_message[0] = type_of_message;
     b_write_message[1] = optional_param;
     b_write_message[2] = node_address;
     b_write_message[3] = ICC_WRITE_DATA;
+    b_write_message[4] = value;
     delay(node_address);
     rp2040.fifo.push(bytes_to_msg(b_write_message));
 }
@@ -295,6 +300,54 @@ void process_message_from_bus(uint8_t *b_message)
             step_to_consensus++;
         }
         break;
+    case GET_ACC_ENERGY_CONSUMPTION:
+        if(b_message[1] == node_id){
+            int accumulated_energy = buffer.get_accumulated_energy_consumption(delta_t, p_max);
+            send_message_to_bus(GET_ACC_ENERGY_CONSUMPTION, node_id, accumulated_energy);
+        }
+        if(node_id == 0){
+            Serial.print("e ");
+            Serial.print(b_message[1]);
+            Serial.print(" ");
+            Serial.println(b_message[4]);
+        }
+        break;
+    case GET_AVG_VISIBILITY_ERROR:
+        if(b_message[1] == node_id){
+            int accumulated_energy = int(buffer.get_accumulated_visibility_error());
+            send_message_to_bus(GET_AVG_FLICKER_ERROR, node_id, accumulated_energy);
+        }
+        if(node_id == 0){
+            Serial.print("v ");
+            int from_node_id;
+            Serial.print(b_message[1]);
+            Serial.print(" ");
+            Serial.println(b_message[4]);
+        }
+        break;
+    case GET_AVG_FLICKER_ERROR:
+        if(b_message[1] == node_id){
+            int accumulated_energy = buffer.get_accumulated_visibility_error();
+            send_message_to_bus(GET_AVG_FLICKER_ERROR, node_id, accumulated_energy);
+        }
+        if(node_id == 0){
+            Serial.print("f ");
+            int from_node_id;
+            Serial.print(b_message[1]);
+            Serial.print(" ");
+            Serial.println(b_message[4]);
+        }
+        break;
+    case GET_INSTANTANEOUS_POWER:
+        if(b_message[1] == node_id){
+            int power = p_max * pwm / 255.0f;
+            send_message_to_bus(GET_INSTANTANEOUS_POWER, node_id, power);
+        }
+        if(node_id == 0 ){
+            Serial.print("p ");
+            Serial.print(b_message[1]);
+            Serial.println(b_message[4]);
+        }
     default:
         break;
     }
@@ -378,7 +431,7 @@ void loop()
                     {
                         step_to_calibrate += 1;
                     }
-                    else if (millis() - waiting_ack_timer > 1000)
+                    else if (millis() - waiting_ack_timer > 3000)
                     {
                         Serial.println("Timeout on step 1");
                         step_to_calibrate -= 1;
@@ -406,7 +459,7 @@ void loop()
                         analogWrite(LED_PIN, 0);
                         delay(1000);
                     }
-                    else if (millis() - waiting_ack_timer > 1000)
+                    else if (millis() - waiting_ack_timer > 3000)
                     {
                         Serial.println("Timeout on step 2: Calc dist coef");
                         step_to_calibrate -= 1;
@@ -424,7 +477,7 @@ void loop()
                     {
                         step_to_calibrate += 1;
                     }
-                    else if (millis() - waiting_ack_timer > 1000)
+                    else if (millis() - waiting_ack_timer > 3000)
                     {
                         Serial.println("Timeout on step 3: Turning LED ON");
                         step_to_calibrate -= 1;
@@ -448,7 +501,7 @@ void loop()
                     {
                         step_to_calibrate += 1;
                     }
-                    else if (millis() - waiting_ack_timer > 1000)
+                    else if (millis() - waiting_ack_timer > 3000)
                     {
                         Serial.println("Timeout on step 3: Calc k");
                         step_to_calibrate -= 1;
@@ -466,7 +519,7 @@ void loop()
                     {
                         step_to_calibrate += 1;
                     }
-                    else if (millis() - waiting_ack_timer > 1000)
+                    else if (millis() - waiting_ack_timer > 3000)
                     {
                         Serial.println("Timeout on step 3: Turning LED off");
                         step_to_calibrate -= 1;
@@ -484,7 +537,7 @@ void loop()
                     {
                         step_to_calibrate += 1;
                     }
-                    else if (millis() - waiting_ack_timer > 1000)
+                    else if (millis() - waiting_ack_timer > 3000)
                     {
                         Serial.println("Timeout on step 4: Turning LED ON");
                         step_to_calibrate -= 1;
@@ -508,7 +561,7 @@ void loop()
                     {
                         step_to_calibrate += 1;
                     }
-                    else if (millis() - waiting_ack_timer > 1000)
+                    else if (millis() - waiting_ack_timer > 3000)
                     {
                         Serial.println("Timeout on step 4: Calc k");
                         step_to_calibrate -= 1;
@@ -526,7 +579,7 @@ void loop()
                     {
                         step_to_calibrate += 1;
                     }
-                    else if (millis() - waiting_ack_timer > 1000)
+                    else if (millis() - waiting_ack_timer > 3000)
                     {
                         Serial.println("Timeout on step 4: Turning LED off");
                         step_to_calibrate -= 1;
@@ -622,14 +675,6 @@ void loop()
                 (float)millis(), (float)pwm / 255.0f,
                 r, lux};
             buffer.put(tmp);
-
-            Serial.print("r: ");
-            Serial.print(r);
-            Serial.print(", y: ");
-            Serial.print(y);
-            Serial.print(", dc: ");
-            Serial.println(pwm);
-            my_pid.housekeep(r, y);
         }
 
         timer_fired = false;
