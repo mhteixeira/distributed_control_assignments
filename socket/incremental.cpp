@@ -32,8 +32,10 @@ class session : public std::enable_shared_from_this<session> {
                 rx_buf[sz] = 0;
                 std::cout << "Received " << rx_buf << std::endl;
                 strncpy(tx_buf,rx_buf, sz);
-                async_write( sock, buffer( tx_buf, sz),
-                [this, self](boost::system::error_code ec, std::size_t sz) {} );
+                //async_write( sock, buffer( tx_buf, sz),
+                //[this, self](boost::system::error_code ec, std::size_t sz) {} );
+                // Write what clients says to serial
+                async_write( sp, buffer(tx_buf), write_handler );
                 start();
             }
             } //end async_read_some lambda arg
