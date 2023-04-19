@@ -196,3 +196,158 @@ float consensus_iterate(struct nodes node, float rho, int size_array, float d[])
     }
     return cost_best;
 }
+
+// void transfer_data_consensus(int j, int current_node_sending_data, float data)
+void transfer_data_consensus(int j, int current_node_sending_data)
+{
+    if (node_id == current_node_sending_data)
+    {
+        uint8_t *array;
+        array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+        send_message_to_bus(FLOAT_PT1, array[0]);
+        send_message_to_bus(FLOAT_PT2, array[1]);
+        send_message_to_bus(FLOAT_PT3, array[2]);
+        send_message_to_bus(FLOAT_PT4, array[3]);
+        if (number_of_acks_received >= 2)
+        {
+            step_to_consensus++;
+        }
+    }
+    else
+    {
+        if (uint8_to_float_receptions[0] && uint8_to_float_receptions[1] && uint8_to_float_receptions[2] && uint8_to_float_receptions[3])
+        {
+            d_matrix[0][j] = *reinterpret_cast<float *>(uint8_to_float_aux_array);
+            Serial.print("read data");
+            Serial.println(d_matrix[0][j]);
+            send_message_to_bus(ACKNOWLEDGE);
+
+            step_to_consensus++;
+        };
+    }
+}
+
+void syncronize_data_transfer(int current_node_sending_data)
+{
+    number_of_acks_received = 0;
+    reset_receptions_array();
+    if (node_id == current_node_sending_data)
+    {
+        send_message_to_bus(NEXT_CONSENSUS_DC, 0);
+        step_to_consensus++;
+    }
+}
+
+void print_d_matrix()
+{
+    Serial.print(d_matrix[0][0]);
+    Serial.print(" ");
+    Serial.print(d_matrix[0][1]);
+    Serial.print(" ");
+    Serial.print(d_matrix[0][2]);
+    Serial.println(" ");
+    Serial.print(d_matrix[1][0]);
+    Serial.print(" ");
+    Serial.print(d_matrix[1][1]);
+    Serial.print(" ");
+    Serial.print(d_matrix[1][2]);
+    Serial.println(" ");
+    Serial.print(d_matrix[2][0]);
+    Serial.print(" ");
+    Serial.print(d_matrix[2][1]);
+    Serial.print(" ");
+    Serial.print(d_matrix[2][2]);
+    Serial.println(" ");
+    Serial.println(" ");
+}
+
+float complete_consensus()
+{
+
+    for (int iter = 0; iter <= 50; iter++)
+    {
+        switch (step_to_consensus)
+        {
+        case 0:
+            cost = consensus_iterate(control_agent, rho, 3, d_matrix[node_id]);
+
+            for (int j = 0; j < 3; j++)
+            {
+                control_agent.d[j] = d_matrix[node_id][j];
+            }
+            number_of_acks_received = 0;
+            step_to_consensus++;
+            break;
+
+        // Now the 9 data transfer (all gains)
+        case 1:
+            transfer_data_consensus(0, 0);
+            break;
+        case 2:
+            syncronize_data_transfer(0);
+            break;
+        case 3:
+            transfer_data_consensus(1, 0);
+            break;
+        case 4:
+            syncronize_data_transfer(0);
+            break;
+        case 5:
+            transfer_data_consensus(2, 0);
+            break;
+        case 6:
+            syncronize_data_transfer(0);
+            break;
+        case 7:
+            transfer_data_consensus(0, 1);
+            break;
+        case 8:
+            syncronize_data_transfer(0);
+            break;
+        case 9:
+            transfer_data_consensus(1, 1);
+            break;
+        case 10:
+            syncronize_data_transfer(0);
+            break;
+        case 11:
+            transfer_data_consensus(2, 1);
+            break;
+        case 12:
+            syncronize_data_transfer(0);
+            break;
+        case 13:
+            transfer_data_consensus(0, 2);
+            break;
+        case 14:
+            syncronize_data_transfer(0);
+            break;
+        case 15:
+            transfer_data_consensus(1, 2);
+            break;
+        case 16:
+            syncronize_data_transfer(0);
+            break;
+        case 17:
+            transfer_data_consensus(2, 2);
+            break;
+        case 18:
+            syncronize_data_transfer(0);
+            break;
+        case 19:
+            step_to_consensus++;
+            print_d_matrix();
+            break;
+        case 20:
+            for (int j = 0; j < 3; j++)
+            {
+                control_agent.d_av[j] = (d_matrix[0][j] + d_matrix[1][j] + d_matrix[2][j]) / 3;
+                control_agent.y[j] = control_agent.y[j] + rho * (control_agent.d[j] - control_agent.d_av[j]);
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    return control_agent.k[0] * control_agent.d_av[0] + control_agent.k[1] * control_agent.d_av[1] + control_agent.k[2] * control_agent.d_av[2] + control_agent.o;
+}

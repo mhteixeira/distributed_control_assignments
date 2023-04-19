@@ -374,7 +374,7 @@ void run_state_machine()
     case CALIBRATION:
         if (is_calibrated)
         {
-            current_state = AUTO;
+            current_state = CONSENSUS;
             Serial.println("\n#######################");
             Serial.println("Calibration finished");
             Serial.println("#######################\n");
