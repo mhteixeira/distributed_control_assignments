@@ -4,126 +4,23 @@
 #include "circular_buffer.h"
 #include "buffered_data_struct.h"
 
-// adresses: COM10 = 156, COM17 = 32
+///////////////////////////
+// My addressess:        //
+// - COM10 = 156         //
+// - COM11 = 125         //
+// - COM17 =  32         //
+///////////////////////////
 
-// Variables for the PID Controller
-const int LED_PIN = 15;
+///////////////////////////
+// DAC Setup             //
+///////////////////////////
+
 const int DAC_RANGE = 4096;
-int sensor_value = 0;
 float V_adc = 0.0;
 float R_ldr = 0.0;
 float lux = 0.0;
-float duty_cycle = 0;
-int pwm = 0;
-float p_max = 0.108f;
 float delta_t = 0.01;
-float restart_time = 0;
-bool occupancy = true;
-
-bool is_streaming_lux = false;
-bool is_streaming_dtc = false;
-bool is_streaming_all = false;
-
-const int NUM_MEASUREMENTS = 6000;
-circular_buffer<NUM_MEASUREMENTS> buffer;
-
-//     pid (h,    K,   b,   Ti,   Td, N,  Tt)
-pid my_pid{0.01, 0.4, 0.1, 0.01, 0, 10, 5};
-float r{7.0};
-
-// Variables for CAN Bus
-MCP2515 can0{spi0, 17, 19, 16, 18, 10000000};
-uint8_t pico_flash_id[8];
-uint8_t node_address;
-unsigned long counterTx{0}, counterRx{0};
-const uint8_t interruptPin{20};
-volatile bool got_irq{false};
-int number_of_detected_nodes = 0;
-int net_addresses[3] = {0, 0, 0};
-uint8_t b_read_message[4];
-int current_time;
-float external_illuminance{0};
-float k_ij[3] = {0, 0, 0};
-int waiting_ack_timer;
-int number_of_acks_received = 0;
-int last_ack_id = -1;
-bool is_calibrated = false;
-
-int node_id = -1;
-
-// Variables for the state machine
-enum States
-{
-    START,
-    WAITING_OTHERS_NODES,
-    CALIBRATION,
-    MANUAL,
-    AUTO
-};
-
-enum TypeMessage
-{
-    NOTHING,                      // 0
-    WAKE_UP,                      // 1
-    CALCULATE_EXTERNAL_LUMINANCE, // 2
-    CALCULATE_DISTURBANCE_COEFF,  // 3
-    TURN_ON_LED,                  // 4
-    USELESS,                      // 5
-    TURN_OFF_LED,                 // 6
-    ACKNOWLEDGE,                  // 7
-    CALIBRATION_COMPLETED         // 8
-};
-
-// Variables for calibration
-int hub_id = 0;
-int acknowledges = 2;
-int step_to_calibrate = 0;
-int total_steps_to_calibrate = 1;
-bool was_message_send = false;
-
-States current_state = START;
-bool enter_auto_state = false;
-bool enter_manual_state = false;
-
-enum inter_core_cmds
-{
-    ICC_READ_DATA = 1,  // From core1 to core0: contains data read (16 bit)
-    ICC_WRITE_DATA = 2, // From core0 to core1: contains data to write (16 bit)
-    ICC_ERROR_DATA = 3  // From core1 to core0: contains regs CANINTF, EFLG
-};
-
-// Interrupt to receive messages from the CAN Bus
-void read_interrupt(uint gpio, uint32_t events)
-{
-    got_irq = true;
-}
-
-void print_calibration()
-{
-    // Serial.println("Valores da calibracao:");
-    // Serial.print("\to_");
-    // Serial.print(node_id);
-    // Serial.print(": ");
-    // Serial.println(external_illuminance);
-    // for (int i = 0; i >= 2; i++)
-    // {
-    //     Serial.print("\tk_{");
-    //     Serial.print(node_id);
-    //     Serial.print(i);
-    //     Serial.print("}: ");
-    //     Serial.println(k_ij[i]);
-    // }
-    Serial.print("cl: ");
-    Serial.print(external_illuminance);
-    Serial.print(" ");
-    Serial.print(k_ij[0]);
-    Serial.print(" ");
-    Serial.print(k_ij[1]);
-    Serial.print(" ");
-    Serial.println(k_ij[2]);
-}
-
-// Timer responsible for the sampling time of the ADC
+int sensor_value = 0;
 volatile unsigned long int timer_time{0};
 volatile bool timer_fired{false};
 struct repeating_timer timer;
@@ -138,13 +35,6 @@ bool my_repeating_timer_callback(struct repeating_timer *t)
     return true;
 }
 
-//////////////////////////////
-// Core0:                   //
-// - Serial communication   //
-// - State machine          //
-// - Control algorithm      //
-//////////////////////////////
-
 float sensor_value_to_lux(int sensor_value)
 {
     V_adc = 3.3 * sensor_value / DAC_RANGE;
@@ -153,27 +43,128 @@ float sensor_value_to_lux(int sensor_value)
     return lux;
 }
 
-void setup()
+///////////////////////////
+// State machine         //
+///////////////////////////
+
+enum States
 {
-    restart_time = millis();
-    rp2040.idleOtherCore();
-    flash_get_unique_id(pico_flash_id);
-    rp2040.resumeOtherCore();
-    node_address = pico_flash_id[6];
-    net_addresses[0] = node_address;
+    START,
+    WAITING_OTHERS_NODES,
+    CALIBRATION,
+    MANUAL,
+    AUTO,
+    CONSENSUS
+};
 
-    Serial.begin();
-    analogReadResolution(12);
-    add_repeating_timer_ms(-1000, my_repeating_timer_callback,
-                           NULL, &timer);
-    delay(10000);
+States current_state = START;
+bool enter_auto_state = false;
+bool enter_manual_state = false;
 
-    // if (node_address == 156)
-    //     node_id = 0;
-    // else if (node_address == 32)
-    //     node_id = 1;
-    // else
-    //     node_id = 2;
+///////////////////////////
+// User interface utils  //
+///////////////////////////
+
+int current_time;
+float restart_time = 0;
+bool occupancy = true;
+
+bool is_streaming_lux = false;
+bool is_streaming_dtc = false;
+bool is_streaming_all = false;
+
+const int NUM_MEASUREMENTS = 6000;
+circular_buffer<NUM_MEASUREMENTS> buffer;
+
+float p_max = 0.108f;
+
+///////////////////////////
+// PID Variables:        //
+///////////////////////////
+
+const int LED_PIN = 15;
+float duty_cycle = 0;
+int pwm = 0;
+//     pid (h,    K,   b,   Ti,   Td, N,  Tt)
+pid my_pid{0.01, 0.4, 0.1, 0.01, 0, 10, 5};
+float r{7.0};
+
+///////////////////////////
+// Calibration variables //
+///////////////////////////
+
+int step_to_calibrate = 0;
+float external_illuminance{0};
+float k_ij[3] = {0, 0, 0};
+int waiting_ack_timer;
+int number_of_acks_received = 0;
+int last_ack_id = -1;
+bool is_calibrated = false;
+int node_id = -1;
+
+void print_calibration()
+{
+    Serial.print("o_");
+    Serial.print(node_id);
+    Serial.print(": ");
+    Serial.print(external_illuminance);
+    for (int i = 0; i <= 2; i++)
+    {
+        Serial.print("   k_{");
+        Serial.print(node_id);
+        Serial.print(i);
+        Serial.print("}: ");
+        Serial.print(k_ij[i]);
+    }
+    Serial.println("");
+}
+
+///////////////////////////
+// CAN Bus Variables     //
+///////////////////////////
+
+MCP2515 can0{spi0, 17, 19, 16, 18, 10000000};
+uint8_t pico_flash_id[8];
+uint8_t node_address;
+unsigned long counterTx{0}, counterRx{0};
+const uint8_t interruptPin{20};
+volatile bool got_irq{false};
+int number_of_detected_nodes = 0;
+int net_addresses[3] = {0, 0, 0};
+uint8_t b_read_message[4];
+
+// Interrupt to receive messages from the CAN Bus
+void read_interrupt(uint gpio, uint32_t events)
+{
+    got_irq = true;
+}
+
+enum inter_core_cmds
+{
+    ICC_READ_DATA = 1,  // From core1 to core0: contains data read (16 bit)
+    ICC_WRITE_DATA = 2, // From core0 to core1: contains data to write (16 bit)
+    ICC_ERROR_DATA = 3  // From core1 to core0: contains regs CANINTF, EFLG
+};
+
+enum TypeMessage
+{
+    WAKE_UP,                      // 0
+    CALCULATE_EXTERNAL_LUMINANCE, // 1
+    CALCULATE_DISTURBANCE_COEFF,  // 2
+    TURN_ON_LED,                  // 3
+    TURN_OFF_LED,                 // 4
+    ACKNOWLEDGE,                  // 5
+    CALIBRATION_COMPLETED,        // 6
+    FLOAT_PT1,
+    FLOAT_PT2,
+    FLOAT_PT3,
+    FLOAT_PT4
+};
+
+int get_node_id_from_address(int node_address)
+{
+    node_id = (net_addresses[0] < node_address) + (net_addresses[1] < node_address) + (net_addresses[2] < node_address);
+    return node_id;
 }
 
 void send_message_to_bus(TypeMessage type_of_message, int optional_param = 0)
@@ -184,7 +175,6 @@ void send_message_to_bus(TypeMessage type_of_message, int optional_param = 0)
     b_write_message[1] = optional_param;
     b_write_message[2] = node_address;
     b_write_message[3] = ICC_WRITE_DATA;
-
     delay(node_address);
     rp2040.fifo.push(bytes_to_msg(b_write_message));
 }
@@ -192,6 +182,7 @@ void send_message_to_bus(TypeMessage type_of_message, int optional_param = 0)
 void process_message_from_bus(uint8_t *b_message)
 {
     int measurement;
+    // int receiving_id;
     switch (b_message[0])
     {
     case WAKE_UP:
@@ -200,8 +191,11 @@ void process_message_from_bus(uint8_t *b_message)
             net_addresses[number_of_detected_nodes + 1] = b_read_message[2];
             number_of_detected_nodes++;
         }
+        if (current_state != START)
+            is_calibrated = false;
         break;
     case CALCULATE_EXTERNAL_LUMINANCE:
+        Serial.println("oi :)");
         measurement = analogRead(A0);
         external_illuminance = sensor_value_to_lux(measurement);
         send_message_to_bus(ACKNOWLEDGE, node_id);
@@ -232,14 +226,75 @@ void process_message_from_bus(uint8_t *b_message)
         break;
     case ACKNOWLEDGE:
         number_of_acks_received++;
+        Serial.println("ack");
         break;
     case CALIBRATION_COMPLETED:
         is_calibrated = true;
-        print_calibration();
+        break;
+    case FLOAT_PT1:
+        receiving_id = get_node_id_from_address(b_message[2]);
+        Serial.println(receiving_id);
         break;
     default:
         break;
     }
+}
+
+///////////////////////////
+// Consensus variables   //
+///////////////////////////
+
+struct nodes
+{
+    int index;
+    float d[3];
+    float d_av[3];
+    float y[3];
+    float k[3];
+    float n;
+    float m;
+    float c[3];
+    float o;
+    float L;
+};
+
+float d_matrix[3][3] = {
+    {1, 2, 3},
+    {0, 0, 0},
+    {0, 0, 0}};
+
+float l[3]{0, 0, 0};
+float d[3]{0, 0, 0};
+float rho = 1;
+float c = 1;
+struct nodes control_agent = {{0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0}, {0}, {0, 0, 0}, {0}, {0}};
+int step_to_consensus = 0;
+float cost;
+
+//////////////////////////////
+// Core0:                   //
+// - Serial communication   //
+// - State machine          //
+// - Control algorithm      //
+//////////////////////////////
+
+void setup()
+{
+    restart_time = millis();
+    rp2040.idleOtherCore();
+    flash_get_unique_id(pico_flash_id);
+    rp2040.resumeOtherCore();
+    node_address = pico_flash_id[6];
+    net_addresses[0] = node_address;
+
+    Serial.begin();
+    analogReadResolution(12);
+    add_repeating_timer_ms(-10, my_repeating_timer_callback,
+                           NULL, &timer);
+    delay(10000);
+    Serial.println("\n##########################");
+    Serial.println("Starting wake up procedure");
+    Serial.println("##########################\n");
 }
 
 void loop()
@@ -255,29 +310,18 @@ void loop()
         if (current_state == START)
         {
             send_message_to_bus(WAKE_UP, number_of_detected_nodes);
-            Serial.print("s Sending");
-            print_message(counterTx, node_address, node_address, number_of_detected_nodes);
-            counterTx++;
-            Serial.print(node_id);
-            Serial.print(" ");
+            Serial.print("Addresses discovered: ");
             Serial.print(net_addresses[0]);
-            Serial.print(" ");
-            Serial.print(net_addresses[1]);
-            Serial.print(" ");
-            Serial.print(net_addresses[2]);
-            Serial.print(" ");
-            Serial.println();
-        }
-        if (current_state == WAITING_OTHERS_NODES)
-        {
-            Serial.print(node_id);
-            Serial.print(" ");
-            Serial.print(net_addresses[0]);
-            Serial.print(" ");
-            Serial.print(net_addresses[1]);
-            Serial.print(" ");
-            Serial.print(net_addresses[2]);
-            Serial.print(" ");
+            Serial.print(" (mine), ");
+            if (net_addresses[1] != 0)
+                Serial.print(net_addresses[1]);
+            else
+                Serial.print("_");
+            Serial.print(" and ");
+            if (net_addresses[2] != 0)
+                Serial.print(net_addresses[1]);
+            else
+                Serial.print("_");
             Serial.println();
         }
         if (current_state == CALIBRATION)
@@ -287,9 +331,7 @@ void loop()
                 switch (step_to_calibrate)
                 {
                 case 0:
-                    Serial.println("#######################");
-                    Serial.println("Starting calibration...");
-                    Serial.println("#######################\n");
+
                     Serial.println("### Step 1: Calculating external luminance");
                     // Tell others to calculate o_i
                     send_message_to_bus(CALCULATE_EXTERNAL_LUMINANCE);
@@ -314,7 +356,7 @@ void loop()
                     }
                     break;
                 case 2:
-                    Serial.println("### Step 2: Calculating k_{i1}");
+                    Serial.println("### Step 2: Calculating k_{i0}");
                     analogWrite(LED_PIN, 4095);
                     delay(1000);
                     // Tell others to calculate k_ij
@@ -342,7 +384,7 @@ void loop()
                     }
                     break;
                 case 4:
-                    Serial.println("### Step 3: Calculating k_{i2}");
+                    Serial.println("### Step 3: Calculating k_{i1}");
                     send_message_to_bus(TURN_ON_LED, 1);
                     waiting_ack_timer = millis();
                     number_of_acks_received = 0;
@@ -402,7 +444,7 @@ void loop()
                     }
                     break;
                 case 10:
-                    Serial.println("### Step 4: Calculating k_{i3}");
+                    Serial.println("### Step 4: Calculating k_{i2}");
                     send_message_to_bus(TURN_ON_LED, 2);
                     waiting_ack_timer = millis();
                     number_of_acks_received = 0;
@@ -464,29 +506,26 @@ void loop()
                 case 16:
                     send_message_to_bus(CALIBRATION_COMPLETED);
                     is_calibrated = true;
-                    print_calibration();
+
+                    control_agent.index = node_id;
+                    control_agent.k[0] = k_ij[0];
+                    control_agent.k[1] = k_ij[1];
+                    control_agent.k[2] = k_ij[2];
+                    control_agent.n = pow(k_ij[0], 2) + pow(k_ij[1], 2) + pow(k_ij[2], 2);
+                    control_agent.m = control_agent.n - pow(k_ij[node_id], 2);
+                    control_agent.c[node_id] = c;
+                    control_agent.o = external_illuminance;
+
+                    step_to_calibrate = 0;
                     break;
                 default:
-                    Serial.println("step 2");
+                    Serial.println("Invalid step");
                     break;
                 }
             }
         }
         if (current_state == MANUAL || current_state == AUTO)
         {
-            Serial.println("Valores da calibracao:");
-            Serial.print("\to_");
-            Serial.print(node_id);
-            Serial.print(": ");
-            Serial.println(external_illuminance);
-            for (int i = 0; i >= 2; i++)
-            {
-                Serial.print("\tk_{");
-                Serial.print(node_id);
-                Serial.print(i);
-                Serial.print("}: ");
-                Serial.println(k_ij[i]);
-            }
             sensor_value = analogRead(A0);
             lux = sensor_value_to_lux(sensor_value);
 
@@ -539,6 +578,81 @@ void loop()
 
         timer_fired = false;
     }
+
+    if (current_state == CONSENSUS)
+    {
+        switch (step_to_consensus)
+        {
+        case 0:
+            cost = consensus_iterate(control_agent, rho, 3, d_matrix[node_id]);
+
+            for (int j = 0; j < 3; j++)
+            {
+                control_agent.d[j] = d_matrix[node_id][j];
+            }
+            step_to_consensus++;
+            break;
+        case 1:
+            if (node_id == 0)
+            {
+                for (int j = 0; j < 3; j++)
+                {
+                    uint8_t *array;
+                    array = reinterpret_cast<uint8_t *>(&control_agent.d[j]);
+                    send_message_to_bus(FLOAT_PT1, array[0]);
+                    send_message_to_bus(FLOAT_PT2, array[1]);
+                    send_message_to_bus(FLOAT_PT3, array[2]);
+                    send_message_to_bus(FLOAT_PT4, array[3]);
+                }
+            }
+            break;
+        case 2:
+            break;
+        default:
+            break;
+        }
+
+        // float test = 0.5;
+        // uint8_t *array;
+        // array = reinterpret_cast<uint8_t *>(&test);
+        // Serial.println(array[0]);
+        // Serial.println(array[1]);
+        // Serial.println(array[2]);
+        // Serial.println(array[3]);
+        // float test_back = *reinterpret_cast<float *>(array);
+        // Serial.println(test_back);
+        // Serial.println("");
+
+        // send_message_to_bus(FLOAT_PT1, array[0]);
+        // send_message_to_bus(FLOAT_PT2, array[1]);
+        // send_message_to_bus(FLOAT_PT3, array[2]);
+        // send_message_to_bus(FLOAT_PT4, array[3]);
+
+        // Vou ter que usar uma série de steps, assim como na calibração, pra tudo acontecer de forma síncrona
+
+        if (node_id == 0)
+        {
+            // Envio e espero 2 acks
+        }
+        else
+        {
+        }
+        // Passos:
+        //      1. Se eu for o 0, eu envio cada byte e espero 2 acks
+        //      2. Quem recebe manda um ack a cada, quando completa 4 forma o float e guarda
+        //      3. Se eu for o 1, eu envio cada byte e espero 2 acks
+        //      4.
+        //      5.
+
+        // Comunication with other nodes to get both d[j] from each node
+
+        // for (int j = 0; j < 3; j++)
+        // {
+        //     control_agent.d_av[j] = (control_agent.d[j] + node2.d[j] + node3.d[j]) / 3;
+        //     control_agent.y[j] = control_agent.y[j] + rho * (control_agent.d[j] - control_agent.d_av[j]);
+        // }
+    }
+
     // Interrupção para o FIFO
     if (rp2040.fifo.pop_nb(&msg))
     {
@@ -547,9 +661,7 @@ void loop()
         {
             uint16_t val = msg;
 
-            // Serial.print("Received");
-            // print_message(counterRx, node_address, b_read_message[2], val);
-
+            process_message_from_bus(b_read_message);
             counterRx++;
         }
         else if (b_read_message[3] == ICC_ERROR_DATA)
@@ -558,8 +670,6 @@ void loop()
             can0.clearRXnOVRFlags();
             can0.clearInterrupts();
         }
-
-        process_message_from_bus(b_read_message);
     }
 }
 

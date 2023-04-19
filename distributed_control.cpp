@@ -1,38 +1,28 @@
-#include <iostream>
-using namespace std;
-#include <bitset>
+#include "distr.h"
 
-struct nodes
+pid::pid(float h_, float K_, float b_, float Ti_, float Td_, float N_, float Tt_)
+    : h{h_}, K{K_}, b{b_}, Ti{Ti_}, Td{Td_},
+      N{N_}, I{0.0}, D{0.0}, y_old{0.0}, Tt{Tt_},
+      es{0.0}, K_old{0.0}, b_old{0.0}, in_transition{false},
+      anti_windup_status{true}, feedforward_status{true}
 {
-    int index;
-    float d[3];
-    float d_av[3];
-    float y[3];
-    float k[3];
-    float n;
-    float m;
-    float c[3];
-    float o;
-    float L;
-};
-
-float evaluate_cost(struct nodes node, float d[], float rho, int vector_size)
-{
-    float cost = 0;
-    float norm = 0;
-    float prod_int = 0;
-    float prod_int2 = 0;
-    for (int i = 0; i < vector_size; i++)
-    {
-        prod_int += node.c[i] * d[i];
-        prod_int2 += node.y[i] * (d[i] - node.d_av[i]);
-        norm += (d[i] - node.d_av[i]) * (d[i] - node.d_av[i]);
-    }
-    cost = prod_int + prod_int2 + rho / 2 * norm;
-    return cost;
 }
 
-bool check_feasibility(struct nodes node, float d[], int vector_size)
+float distributed_controller::evaluate_cost(struct nodes node, float d[], float rho, int vector_size)
+{
+    float norm = 0;
+    float sum1 = 0;
+    float sum2 = 0;
+    for (int i = 0; i < vector_size; i++)
+    {
+        sum1 += node.c[i] * d[i];
+        sum2 += node.y[i] * (d[i] - node.d_av[i]);
+        norm += (d[i] - node.d_av[i]) * (d[i] - node.d_av[i]);
+    }
+    return sum1 + sum2 + rho / 2 * norm;
+}
+
+bool distributed_controller::check_feasibility(struct nodes node, float d[], int vector_size)
 {
     float tol = 0.001; // tolerance for rounding errors
     if (d[node.index] < 0 - tol)
@@ -51,7 +41,7 @@ bool check_feasibility(struct nodes node, float d[], int vector_size)
     return true;
 }
 
-float consensus_iterate(struct nodes node, float rho, int size_array, float d[])
+float distributed_controller::consensus_iterate(struct nodes node, float rho, int size_array, float d[])
 {
     float d_best[size_array];
     float cost_best{1000000};
@@ -215,116 +205,4 @@ float consensus_iterate(struct nodes node, float rho, int size_array, float d[])
         d[i] = d_best[i];
     }
     return cost_best;
-}
-
-// case of test
-float L1 = 80;
-float o1 = 0.3153306;
-float L2 = 80;
-float o2 = 0.3894527;
-float L3 = 80;
-float o3 = 0.4335906;
-
-// individual cost
-float c1 = 1;
-float c2 = 1;
-float c3 = 1;
-
-// system calibration parameters
-float k11 = 3.3256989;
-float k12 = 0.1449770;
-float k13 = 0.0232854;
-
-float k21 = 0.3541722;
-float k22 = 1.6310002;
-float k23 = 0.0533489;
-
-float k31 = 0.0716771;
-float k32 = 1.1261380;
-float k33 = 1.3077351;
-
-float rho = 1;
-const int maxiter = 50;
-
-// history of distrbuting solution
-// float d11[maxiter]{0}, d12[maxiter]{0}, d21[maxiter]{0}, d22[maxiter]{0}, av1[maxiter]{0}, av2[maxiter]{0};
-
-// distributed node initialization
-struct nodes node1 = {{0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {k11, k12, k13}, {11.0818}, {0.0216}, {c1, 0, 0}, {o1}, {L1}};
-struct nodes node2 = {{1}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {k21, k22, k23}, {2.7884}, {0.1283}, {0, c2, 0}, {o2}, {L2}};
-struct nodes node3 = {{2}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {k31, k32, k33}, {2.9835}, {1.2733}, {0, 0, c3}, {o3}, {L3}};
-
-float l[3]{0, 0, 0};
-float d[3]{0, 0, 0};
-
-// variaveis de teste
-// float teste_arr[2]{0,0};
-// bool testand = consensus_iterate(node1,rho,2,teste_arr);
-float d1[3]{0, 0, 0};
-
-int main()
-{
-    //   d11[0] = node1.d[0];
-    //   d12[0] = node1.d[1];
-    //   d21[0] = node2.d[0];
-    //   d22[0] = node2.d[1];
-    //   av1[0] = (d11[0]+d21[0]+d31[0])/3;
-    //   av2[0] = (d12[0]+d22[0]+d32[0])/3;
-    //   av3[0] = (d13[0]+d23[0]+d33[0])/3;
-    for (int i = 1; i < 500; i++)
-    {
-        // computation of the primal solutions
-        // node 1
-        float cost1 = consensus_iterate(node1, rho, 3, d1);
-        for (int j = 0; j < 3; j++)
-            node1.d[j] = d1[j];
-
-        // node 2
-        float d2[3]{0, 0, 0};
-        float cost2 = consensus_iterate(node2, rho, 3, d2);
-        for (int j = 0; j < 3; j++)
-        {
-            node2.d[j] = d2[j];
-        }
-
-        // node 3
-        float d3[3]{0, 0, 0};
-        float cost3 = consensus_iterate(node3, rho, 3, d3);
-        for (int j = 0; j < 3; j++)
-        {
-            node3.d[j] = d3[j];
-        }
-
-        // comms
-
-        for (int j = 0; j < 3; j++)
-        {
-            node1.d_av[j] = (node1.d[j] + node2.d[j] + node3.d[j]) / 3;
-            node2.d_av[j] = (node1.d[j] + node2.d[j] + node3.d[j]) / 3;
-            node3.d_av[j] = (node1.d[j] + node2.d[j] + node3.d[j]) / 3;
-        }
-        // compuation of the lagrangian updates
-        for (int j = 0; j < 3; j++)
-        {
-            node1.y[j] = node1.y[j] + rho * (node1.d[j] - node1.d_av[j]);
-            node2.y[j] = node2.y[j] + rho * (node2.d[j] - node1.d_av[j]);
-            node3.y[j] = node3.y[j] + rho * (node3.d[j] - node3.d_av[j]);
-        }
-    }
-
-    for (int i = 0; i < 3; i++)
-    {
-        d[i] = node1.d_av[i];
-        cout << " d[ " << i << "]= " << d[i] << endl;
-    }
-    // mulitiplicar K*d+o
-    l[0] = k11 * node1.d_av[0] + k12 * node1.d_av[1] + k31 * node1.d_av[2] + o1;
-    l[1] = k21 * node1.d_av[0] + k22 * node1.d_av[1] + k23 * node1.d_av[2] + o2;
-    l[2] = k31 * node1.d_av[0] + k32 * node1.d_av[1] + k33 * node1.d_av[2] + o3;
-    for (int i = 0; i < 3; i++)
-    {
-        cout << " l[ " << i << "]= " << l[i] << endl;
-    }
-
-    return 0;
 }

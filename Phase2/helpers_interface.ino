@@ -80,8 +80,16 @@ void process_user_request()
             }
             break;
         case 'r':
-            r = request.substring(2).toFloat();
-            Serial.println("ack");
+            if (request.substring(2) == "")
+            {
+                is_calibrated = false;
+                Serial.println("reset");
+            }
+            else
+            {
+                r = request.substring(2).toFloat();
+                Serial.println("ack");
+            }
             break;
         case 'g':
             switch (request.charAt(2))
@@ -306,6 +314,26 @@ void process_user_request()
     }
 }
 
+void reset_values()
+{
+    restart_time = millis();
+    occupancy = true;
+
+    is_streaming_lux = false;
+    is_streaming_dtc = false;
+    is_streaming_all = false;
+    r = 7.0;
+    number_of_detected_nodes = 0;
+    net_addresses[1] = 0;
+    net_addresses[2] = 0;
+    k_ij[0] = 0;
+    k_ij[1] = 0;
+    k_ij[2] = 0;
+    number_of_acks_received = 0;
+    last_ack_id = -1;
+    node_id = -1;
+}
+
 void run_state_machine()
 {
     switch (current_state)
@@ -315,19 +343,49 @@ void run_state_machine()
         {
             current_state = WAITING_OTHERS_NODES;
             current_time = millis();
-            node_id = (net_addresses[0] < node_address) + (net_addresses[1] < node_address) + (net_addresses[2] < node_address);
+            node_id = get_node_id_from_address(node_address);
+            Serial.println("\n##########################");
+            Serial.println("Finished wake up procedure");
+            Serial.println("##########################\n");
+            Serial.print("Net addresses: ");
+            Serial.print(net_addresses[0]);
+            Serial.print(" (mine), ");
+            Serial.print(net_addresses[1]);
+            Serial.print(" and ");
+            Serial.print(net_addresses[2]);
+            Serial.println();
+            Serial.print("My node id: ");
+            Serial.println(node_id);
+            if (node_id == 0)
+            {
+                Serial.println("I'm the Hub");
+            }
         }
         break;
     case WAITING_OTHERS_NODES:
         if (millis() - current_time > 1000)
         {
             current_state = CALIBRATION;
+            Serial.println("\n#######################");
+            Serial.println("Starting calibration...");
+            Serial.println("#######################\n");
         }
         break;
     case CALIBRATION:
         if (is_calibrated)
         {
-            current_state = AUTO;
+            current_state = CONSENSUS;
+            Serial.println("\n#######################");
+            Serial.println("Calibration finished");
+            Serial.println("#######################\n");
+            print_calibration();
+        }
+        break;
+    case CONSENSUS:
+        if (!is_calibrated)
+        {
+            reset_values();
+            current_state = START;
         }
         break;
     case AUTO:
@@ -336,12 +394,22 @@ void run_state_machine()
             current_state = MANUAL;
             enter_manual_state = false;
         }
+        if (!is_calibrated)
+        {
+            reset_values();
+            current_state = START;
+        }
         break;
     case MANUAL:
         if (enter_auto_state)
         {
             current_state = AUTO;
             enter_auto_state = false;
+        }
+        if (!is_calibrated)
+        {
+            reset_values();
+            current_state = START;
         }
         break;
     }
