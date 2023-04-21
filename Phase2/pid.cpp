@@ -25,8 +25,8 @@ float pid::compute_control(float r, float y)
   D = ad * D - bd * (y - y_old);
   float v = P + I + D;
   float u = v;
-  if (v < 0)
-    u = 0;
+  if (v < -255)
+    u = -255;
   if (v > 255)
     u = 255;
   es = u - v;

@@ -88,6 +88,9 @@ void process_user_request()
             else
             {
                 r = request.substring(2).toFloat();
+                finished_consensus = false;
+                control_agent.L = r;
+                send_message_to_bus(REDO_CONSENSUS);
                 Serial.println("ack");
             }
             break;

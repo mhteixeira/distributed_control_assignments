@@ -244,6 +244,7 @@ void syncronize_data_transfer(int current_node_sending_data)
 
 void print_d_matrix(int iteration)
 {
+    Serial.println(" ");
     Serial.print("Consensus iteration: ");
     Serial.println(iteration);
     Serial.print(d_matrix[0][0]);
@@ -263,7 +264,6 @@ void print_d_matrix(int iteration)
     Serial.print(d_matrix[2][1]);
     Serial.print(" ");
     Serial.print(d_matrix[2][2]);
-    Serial.println(" ");
     Serial.println(" ");
 }
 

@@ -211,6 +211,7 @@ enum TypeMessage
     FLOAT_PT2,
     FLOAT_PT3,
     FLOAT_PT4,
+    REDO_CONSENSUS
 };
 
 int get_node_id_from_address(int node_address)
@@ -288,6 +289,9 @@ void process_message_from_bus(uint8_t *b_message)
         break;
     case ACKNOWLEDGE:
         number_of_acks_received++;
+        break;
+    case REDO_CONSENSUS:
+        finished_consensus = false;
         break;
     case CALIBRATION_COMPLETED:
         is_calibrated = true;
@@ -650,7 +654,7 @@ void loop()
             {
                 sensor_value = analogRead(A0);
                 float y = sensor_value_to_lux(sensor_value);
-                // float u = my_pid.compute_control(new_ref, y) + 255 * control_agent.d_av[node_id];
+                // float u = my_pid.compute_control(new_ref, y) + 255 * max(0, min(1, control_agent.d_av[node_id]));
                 float u = my_pid.compute_control(new_ref, y);
                 pwm = (int)u;
                 my_pid.housekeep(new_ref, y);
@@ -669,8 +673,7 @@ void loop()
                     Serial.print(new_ref);
                     Serial.print(", y: ");
                     Serial.print(y);
-                    Serial.print(", dc: ");
-                    Serial.println(u);
+                    Serial.println("");
                 }
             }
         }
