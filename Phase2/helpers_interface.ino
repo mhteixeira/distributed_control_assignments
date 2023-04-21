@@ -374,6 +374,17 @@ void run_state_machine()
     case CALIBRATION:
         if (is_calibrated)
         {
+
+            control_agent.index = node_id;
+            control_agent.k[0] = k_ij[0];
+            control_agent.k[1] = k_ij[1];
+            control_agent.k[2] = k_ij[2];
+            control_agent.n = pow(k_ij[0], 2) + pow(k_ij[1], 2) + pow(k_ij[2], 2);
+            control_agent.m = control_agent.n - pow(k_ij[node_id], 2);
+            control_agent.c[node_id] = c;
+            control_agent.o = external_illuminance;
+            control_agent.L = 5;
+
             current_state = CONSENSUS;
             Serial.println("\n#######################");
             Serial.println("Calibration finished");

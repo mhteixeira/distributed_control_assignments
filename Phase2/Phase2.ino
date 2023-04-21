@@ -123,6 +123,10 @@ void print_calibration()
 // Consensus variables   //
 ///////////////////////////
 
+int consensus_iteration = 0;
+int max_consensus_iterations = 20;
+bool finished_consensus = false;
+float new_ref;
 struct nodes
 {
     int index;
@@ -142,6 +146,10 @@ uint8_t uint8_to_float_aux_array[4] = {0, 0, 0, 0};
 bool uint8_to_float_receptions[4] = {false, false, false, false};
 void reset_receptions_array()
 {
+    uint8_to_float_aux_array[0] = 0;
+    uint8_to_float_aux_array[1] = 0;
+    uint8_to_float_aux_array[2] = 0;
+    uint8_to_float_aux_array[3] = 0;
     uint8_to_float_receptions[0] = false;
     uint8_to_float_receptions[1] = false;
     uint8_to_float_receptions[2] = false;
@@ -153,15 +161,13 @@ float d_matrix[3][3] = {
     {0, 0, 0},
     {0, 0, 0}};
 
-float l[3]{0, 0, 0};
-float d[3]{0, 0, 0};
 float rho = 1;
 float c = 1;
 struct nodes control_agent = {{0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0}, {0}, {0, 0, 0}, {0}, {0}};
 
 int step_to_consensus = 0;
-int current_node_sending_data = 0;
-float cost;
+int current_node = 0;
+float cost = 0;
 
 ///////////////////////////
 // CAN Bus Variables     //
@@ -219,14 +225,16 @@ void send_message_to_bus(TypeMessage type_of_message, int optional_param = 0)
     b_write_message[1] = optional_param;
     b_write_message[2] = node_address;
     b_write_message[3] = ICC_WRITE_DATA;
-    delay(node_address);
+    if (type_of_message == WAKE_UP)
+        delay(node_address);
+    else
+        delay(node_id + 2);
     rp2040.fifo.push(bytes_to_msg(b_write_message));
 }
 
 void process_message_from_bus(uint8_t *b_message)
 {
     int measurement;
-    int receiving_id;
     switch (b_message[0])
     {
     case WAKE_UP:
@@ -290,10 +298,7 @@ void process_message_from_bus(uint8_t *b_message)
         uint8_to_float_receptions[3] = true;
         break;
     case NEXT_CONSENSUS_DC:
-        if ((b_message[1] == current_node_sending_data) && (node_id != current_node_sending_data))
-        {
-            step_to_consensus++;
-        }
+        step_to_consensus++;
         break;
     default:
         break;
@@ -536,16 +541,6 @@ void loop()
                     send_message_to_bus(CALIBRATION_COMPLETED);
                     is_calibrated = true;
 
-                    control_agent.index = node_id;
-                    control_agent.k[0] = k_ij[0];
-                    control_agent.k[1] = k_ij[1];
-                    control_agent.k[2] = k_ij[2];
-                    control_agent.n = pow(k_ij[0], 2) + pow(k_ij[1], 2) + pow(k_ij[2], 2);
-                    control_agent.m = control_agent.n - pow(k_ij[node_id], 2);
-                    control_agent.c[node_id] = c;
-                    control_agent.o = external_illuminance;
-                    control_agent.L = 5;
-
                     step_to_calibrate = 0;
                     break;
                 default:
@@ -605,31 +600,44 @@ void loop()
 
             analogWrite(LED_PIN, pwm);
         }
-
         if (current_state == CONSENSUS)
         {
+            if (!finished_consensus)
+            {
+                if (consensus_iteration < 20)
+                {
+                    complete_consensus();
+                }
+                if (consensus_iteration == max_consensus_iterations)
+                {
+                    my_pid.I = 0;
+                    my_pid.set_feedforward_status(false);
+                    new_ref = control_agent.k[0] * control_agent.d_av[0] + control_agent.k[1] * control_agent.d_av[1] + control_agent.k[2] * control_agent.d_av[2] + control_agent.o;
+                    finished_consensus = true;
+                    consensus_iteration = 0;
+                }
+            }
+            if (finished_consensus)
+            {
+                sensor_value = analogRead(A0);
+                float y = sensor_value_to_lux(sensor_value);
+                float u = my_pid.compute_control(new_ref, y) + 255 * control_agent.d_av[node_id];
+                pwm = (int)u;
+                analogWrite(LED_PIN, pwm);
 
-            sensor_value = analogRead(A0);
-            float y = sensor_value_to_lux(sensor_value);
+                buffered_data tmp = buffered_data{
+                    (float)millis(), (float)pwm / 255.0f,
+                    r, lux};
+                buffer.put(tmp);
 
-            // new_ref calculado por sum(k_ij*dav_j) + o_j
-            float new_ref = complete_consensus();
-            float u = my_pid.compute_control(new_ref, y);
-            pwm = (int)u;
-            analogWrite(LED_PIN, pwm);
-
-            buffered_data tmp = buffered_data{
-                (float)millis(), (float)pwm / 255.0f,
-                r, lux};
-            buffer.put(tmp);
-
-            Serial.print("r: ");
-            Serial.print(r);
-            Serial.print(", y: ");
-            Serial.print(y);
-            Serial.print(", dc: ");
-            Serial.println(pwm);
-            my_pid.housekeep(r, y);
+                Serial.print("r: ");
+                Serial.print(r);
+                Serial.print(", y: ");
+                Serial.print(y);
+                Serial.print(", dc: ");
+                Serial.println(pwm);
+                my_pid.housekeep(r, y);
+            }
         }
 
         timer_fired = false;
