@@ -58,6 +58,7 @@ enum States
 };
 
 States current_state = START;
+bool enter_consensus_state = false;
 bool enter_auto_state = false;
 bool enter_manual_state = false;
 
@@ -235,6 +236,8 @@ void send_message_to_bus(TypeMessage type_of_message, int optional_param = 0)
 void process_message_from_bus(uint8_t *b_message)
 {
     int measurement;
+    int measurement1;
+    int measurement2;
     switch (b_message[0])
     {
     case WAKE_UP:
@@ -248,13 +251,21 @@ void process_message_from_bus(uint8_t *b_message)
         break;
     case CALCULATE_EXTERNAL_LUMINANCE:
         measurement = analogRead(A0);
-        external_illuminance = sensor_value_to_lux(measurement);
+        delay(100);
+        measurement1 = analogRead(A0);
+        delay(100);
+        measurement2 = analogRead(A0);
+        external_illuminance = sensor_value_to_lux((measurement + measurement1 + measurement2) / 3);
         send_message_to_bus(ACKNOWLEDGE, node_id);
         break;
     case CALCULATE_DISTURBANCE_COEFF:
         // The optional_param is the position to be measured
         measurement = analogRead(A0);
-        k_ij[b_message[1]] = sensor_value_to_lux(measurement) - external_illuminance;
+        delay(100);
+        measurement1 = analogRead(A0);
+        delay(100);
+        measurement2 = analogRead(A0);
+        k_ij[b_message[1]] = sensor_value_to_lux((measurement + measurement1 + measurement2) / 3) - external_illuminance;
         send_message_to_bus(ACKNOWLEDGE, node_id);
         break;
     case TURN_ON_LED:
@@ -337,6 +348,8 @@ void loop()
     uint32_t msg;
 
     int measurement;
+    int measurement1;
+    int measurement2;
     process_user_request();
     run_state_machine();
     if (timer_fired)
@@ -371,7 +384,11 @@ void loop()
                     send_message_to_bus(CALCULATE_EXTERNAL_LUMINANCE);
                     // Calculate o_i
                     measurement = analogRead(A0);
-                    external_illuminance = sensor_value_to_lux(measurement);
+                    delay(100);
+                    measurement1 = analogRead(A0);
+                    delay(100);
+                    measurement2 = analogRead(A0);
+                    external_illuminance = sensor_value_to_lux((measurement + measurement1 + measurement2) / 3);
                     step_to_calibrate += 1;
 
                     // Ack timeout timer
@@ -397,7 +414,11 @@ void loop()
                     send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 0);
                     // Calculate k_ij
                     measurement = analogRead(A0);
-                    k_ij[0] = sensor_value_to_lux(measurement) - external_illuminance;
+                    delay(100);
+                    measurement1 = analogRead(A0);
+                    delay(100);
+                    measurement2 = analogRead(A0);
+                    k_ij[0] = sensor_value_to_lux((measurement + measurement1 + measurement2) / 3) - external_illuminance;
                     step_to_calibrate += 1;
 
                     // Ack timeout timer
@@ -441,7 +462,11 @@ void loop()
                     send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 1);
                     // Calculate k_ij
                     measurement = analogRead(A0);
-                    k_ij[1] = sensor_value_to_lux(measurement) - external_illuminance;
+                    delay(100);
+                    measurement1 = analogRead(A0);
+                    delay(100);
+                    measurement2 = analogRead(A0);
+                    k_ij[1] = sensor_value_to_lux((measurement + measurement1 + measurement2) / 3) - external_illuminance;
                     step_to_calibrate += 1;
 
                     // Ack timeout timer
@@ -501,7 +526,11 @@ void loop()
                     send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 2);
                     // Calculate k_ij
                     measurement = analogRead(A0);
-                    k_ij[2] = sensor_value_to_lux(measurement) - external_illuminance;
+                    delay(100);
+                    measurement1 = analogRead(A0);
+                    delay(100);
+                    measurement2 = analogRead(A0);
+                    k_ij[2] = sensor_value_to_lux((measurement + measurement1 + measurement2) / 3) - external_illuminance;
                     step_to_calibrate += 1;
 
                     // Ack timeout timer
@@ -621,8 +650,10 @@ void loop()
             {
                 sensor_value = analogRead(A0);
                 float y = sensor_value_to_lux(sensor_value);
-                float u = my_pid.compute_control(new_ref, y) + 255 * control_agent.d_av[node_id];
+                // float u = my_pid.compute_control(new_ref, y) + 255 * control_agent.d_av[node_id];
+                float u = my_pid.compute_control(new_ref, y);
                 pwm = (int)u;
+                my_pid.housekeep(new_ref, y);
                 analogWrite(LED_PIN, pwm);
 
                 buffered_data tmp = buffered_data{
@@ -630,13 +661,17 @@ void loop()
                     r, lux};
                 buffer.put(tmp);
 
-                Serial.print("r: ");
-                Serial.print(r);
-                Serial.print(", y: ");
-                Serial.print(y);
-                Serial.print(", dc: ");
-                Serial.println(pwm);
-                my_pid.housekeep(r, y);
+                if (is_streaming_all)
+                {
+                    Serial.print("L: ");
+                    Serial.print(control_agent.L);
+                    Serial.print(", r: ");
+                    Serial.print(new_ref);
+                    Serial.print(", y: ");
+                    Serial.print(y);
+                    Serial.print(", dc: ");
+                    Serial.println(u);
+                }
             }
         }
 

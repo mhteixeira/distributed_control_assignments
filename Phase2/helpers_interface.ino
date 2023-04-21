@@ -175,6 +175,15 @@ void process_user_request()
                     Serial.println("ack");
                 }
                 break;
+            case '2':
+                if (current_state == CONSENSUS)
+                    Serial.println("err: Already on auto mode");
+                else
+                {
+                    enter_consensus_state = true;
+                    Serial.println("ack");
+                }
+                break;
             default:
                 is_command_valid = false;
                 break;
@@ -398,12 +407,27 @@ void run_state_machine()
             reset_values();
             current_state = START;
         }
+        if (enter_auto_state)
+        {
+            current_state = AUTO;
+            enter_auto_state = false;
+        }
+        if (enter_manual_state)
+        {
+            current_state = MANUAL;
+            enter_manual_state = false;
+        }
         break;
     case AUTO:
         if (enter_manual_state)
         {
             current_state = MANUAL;
             enter_manual_state = false;
+        }
+        if (enter_consensus_state)
+        {
+            current_state = CONSENSUS;
+            enter_consensus_state = false;
         }
         if (!is_calibrated)
         {
@@ -412,6 +436,11 @@ void run_state_machine()
         }
         break;
     case MANUAL:
+        if (enter_consensus_state)
+        {
+            current_state = CONSENSUS;
+            enter_consensus_state = false;
+        }
         if (enter_auto_state)
         {
             current_state = AUTO;
