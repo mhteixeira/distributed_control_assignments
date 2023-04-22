@@ -209,6 +209,9 @@ void process_user_request()
                 if (occupancy == 1)
                 {
                     r = 3;
+                    finished_consensus = false;
+                    control_agent.L = r;
+                    send_message_to_bus(REDO_CONSENSUS);
                     occupancy = false;
                     Serial.println("ack");
                 }
@@ -221,6 +224,9 @@ void process_user_request()
                 if (occupancy == 0)
                 {
                     r = 7;
+                    finished_consensus = false;
+                    control_agent.L = r;
+                    send_message_to_bus(REDO_CONSENSUS);
                     occupancy = true;
                     Serial.println("ack");
                 }
@@ -395,7 +401,7 @@ void run_state_machine()
             control_agent.m = control_agent.n - pow(k_ij[node_id], 2);
             control_agent.c[node_id] = c;
             control_agent.o = external_illuminance;
-            control_agent.L = 5;
+            control_agent.L = r;
 
             current_state = CONSENSUS;
             Serial.println("\n#######################");

@@ -276,7 +276,7 @@ void process_message_from_bus(uint8_t *b_message)
             analogWrite(LED_PIN, 4095);
             send_message_to_bus(ACKNOWLEDGE, node_id);
         }
-        delay(1000);
+        delay(3000);
         break;
 
     case TURN_OFF_LED:
@@ -285,7 +285,7 @@ void process_message_from_bus(uint8_t *b_message)
             analogWrite(LED_PIN, 0);
             send_message_to_bus(ACKNOWLEDGE, node_id);
         }
-        delay(1000);
+        delay(3000);
         break;
     case ACKNOWLEDGE:
         number_of_acks_received++;
@@ -413,7 +413,7 @@ void loop()
                 case 2:
                     Serial.println("### Step 2: Calculating k_{i0}");
                     analogWrite(LED_PIN, 4095);
-                    delay(1000);
+                    delay(3000);
                     // Tell others to calculate k_ij
                     send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 0);
                     // Calculate k_ij
@@ -434,7 +434,7 @@ void loop()
                     {
                         step_to_calibrate += 1;
                         analogWrite(LED_PIN, 0);
-                        delay(1000);
+                        delay(3000);
                     }
                     else if (millis() - waiting_ack_timer > 1000)
                     {
@@ -461,7 +461,7 @@ void loop()
                     }
                     break;
                 case 6:
-                    delay(1000);
+                    delay(3000);
                     // Tell others to calculate k_ij
                     send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 1);
                     // Calculate k_ij
@@ -490,7 +490,7 @@ void loop()
                     break;
                 case 8:
                     send_message_to_bus(TURN_OFF_LED, 1);
-                    delay(1000);
+                    delay(3000);
                     waiting_ack_timer = millis();
                     number_of_acks_received = 0;
                     step_to_calibrate += 1;
@@ -525,7 +525,7 @@ void loop()
                     }
                     break;
                 case 12:
-                    delay(1000);
+                    delay(3000);
                     // Tell others to calculate k_ij
                     send_message_to_bus(CALCULATE_DISTURBANCE_COEFF, 2);
                     // Calculate k_ij
@@ -554,7 +554,7 @@ void loop()
                     break;
                 case 14:
                     send_message_to_bus(TURN_OFF_LED, 2);
-                    delay(1000);
+                    delay(3000);
                     waiting_ack_timer = millis();
                     number_of_acks_received = 0;
                     step_to_calibrate += 1;
@@ -618,16 +618,26 @@ void loop()
                 Serial.print((int)millis());
                 Serial.println("");
             }
+            // if (is_streaming_all)
+            // {
+            //     Serial.print((int)millis());
+            //     Serial.print(", ");
+            //     Serial.print((float)pwm / 255.0f);
+            //     Serial.print(", ");
+            //     Serial.print(r);
+            //     Serial.print(", ");
+            //     Serial.print(lux);
+
+            //     Serial.println("");
+            // }
             if (is_streaming_all)
             {
-                Serial.print((int)millis());
-                Serial.print(", ");
-                Serial.print((float)pwm / 255.0f);
-                Serial.print(", ");
+                Serial.print(", r: ");
                 Serial.print(r);
-                Serial.print(", ");
+                Serial.print(", y: ");
                 Serial.print(lux);
-
+                Serial.print(", pwm/10: ");
+                Serial.print(pwm / 10.0);
                 Serial.println("");
             }
 
@@ -635,6 +645,7 @@ void loop()
         }
         if (current_state == CONSENSUS)
         {
+
             if (!finished_consensus)
             {
                 if (consensus_iteration < 20)
@@ -650,6 +661,7 @@ void loop()
                     consensus_iteration = 0;
                 }
             }
+
             if (finished_consensus)
             {
                 sensor_value = analogRead(A0);
@@ -673,6 +685,8 @@ void loop()
                     Serial.print(new_ref);
                     Serial.print(", y: ");
                     Serial.print(y);
+                    Serial.print(", pwm/10: ");
+                    Serial.print(pwm / 10.0);
                     Serial.println("");
                 }
             }
